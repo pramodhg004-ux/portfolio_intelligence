@@ -66,3 +66,25 @@ if st.sidebar.button("Analyze Portfolio"):
 
     st.subheader("📈 Portfolio Growth")
     st.line_chart(growth)
+    st.sidebar.header("📥 Enter Your Portfolio")
+
+stocks_input = st.sidebar.text_input(
+    "Enter stocks (comma separated)",
+    "AAPL,MSFT,GOOGL"
+)
+
+weights_input = st.sidebar.text_input(
+    "Enter weights (comma separated)",
+    "0.3,0.4,0.3"
+)
+st.sidebar.header("📥 Enter Your Portfolio")
+
+stocks_input = st.sidebar.text_input(
+    "Enter stocks (comma separated)",
+    "AAPL,MSFT,GOOGL"
+)
+
+weights_input = st.sidebar.text_input(
+    "Enter weights (comma separated)",
+    "0.3,0.4,0.3"
+)
