@@ -5,13 +5,11 @@ st.set_page_config(page_title="Portfolio Intelligence", layout="wide")
 
 st.title("🚀 Portfolio Intelligence Dashboard")
 
-base_path = r"C:\Users\Pramodh G\OneDrive\Desktop"
 
-output = pd.read_excel(base_path + r"\portfolio_output.xlsx")
-weights = pd.read_excel(base_path + r"\portfolio_weights.xlsx")
-growth = pd.read_excel(base_path + r"\portfolio_growth.xlsx")
-signals = pd.read_excel(base_path + r"\signals.xlsx")
-
+output = pd.read_excel("portfolio_output.xlsx")
+weights = pd.read_excel("portfolio_weights.xlsx")
+growth = pd.read_excel("portfolio_growth.xlsx")
+signals = pd.read_excel("signals.xlsx")
 # ==============================
 # METRICS (TOP CARDS)
 # ==============================
