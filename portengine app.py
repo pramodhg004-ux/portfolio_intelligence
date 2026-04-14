@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
+from scipy.optimize import minimize
 
 # ==============================
 # PAGE CONFIG
@@ -20,45 +21,18 @@ stocks_input = st.sidebar.text_area(
     "AAPL,MSFT,GOOGL"
 )
 
-weights_input = st.sidebar.text_area(
-    "Enter weights (comma separated)",
-    "0.3,0.4,0.3"
-)
-
 st.sidebar.caption("💡 Example: AAPL, MSFT, GOOGL")
-st.sidebar.caption("💡 Weights must sum to 1 (e.g., 0.3, 0.4, 0.3)")
 
 # ==============================
 # BUTTON ACTION
 # ==============================
 if st.sidebar.button("Analyze Portfolio"):
 
-    # ==============================
-    # INPUT CLEANING
-    # ==============================
     stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip() != ""]
-    weights_raw = [w.strip() for w in weights_input.split(",") if w.strip() != ""]
 
-    # Convert weights safely
-    try:
-        weights = np.array(list(map(float, weights_raw)))
-    except:
-        st.error("❌ Weights must be numbers")
-        st.stop()
-
-    # ==============================
-    # VALIDATIONS
-    # ==============================
     if len(stocks) == 0:
         st.error("❌ Please enter at least one stock")
         st.stop()
-
-    if len(stocks) != len(weights):
-        st.error("❌ Number of stocks and weights must match")
-        st.stop()
-
-    if abs(sum(weights) - 1) > 0.01:
-        st.warning("⚠️ Weights should sum to 1 (100%)")
 
     # ==============================
     # DOWNLOAD DATA
@@ -68,20 +42,40 @@ if st.sidebar.button("Analyze Portfolio"):
     if isinstance(data.columns, pd.MultiIndex):
         data = data["Close"]
 
-    if data.isnull().all().all():
-        st.error("❌ Could not fetch stock data. Check symbols.")
-        st.stop()
+    returns = data.pct_change().dropna()
 
     # ==============================
-    # RETURNS
+    # OPTIMIZATION FUNCTION
     # ==============================
-    returns = data.pct_change().dropna()
+    def portfolio_volatility(weights):
+        return np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
+
+    num_assets = len(stocks)
+
+    constraints = ({
+        "type": "eq",
+        "fun": lambda x: np.sum(x) - 1
+    })
+
+    bounds = tuple((0, 1) for _ in range(num_assets))
+
+    initial_weights = np.ones(num_assets) / num_assets
+
+    result = minimize(
+        portfolio_volatility,
+        initial_weights,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints
+    )
+
+    weights = result.x
 
     # ==============================
     # METRICS
     # ==============================
     port_return = np.sum(returns.mean() * weights) * 252
-    port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
+    port_vol = portfolio_volatility(weights)
     sharpe = port_return / port_vol
 
     cumulative = (1 + returns.dot(weights)).cumprod()
@@ -90,7 +84,7 @@ if st.sidebar.button("Analyze Portfolio"):
     # ==============================
     # DISPLAY METRICS
     # ==============================
-    st.subheader("📊 Live Portfolio Metrics")
+    st.subheader("📊 Optimized Portfolio Metrics")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -102,7 +96,7 @@ if st.sidebar.button("Analyze Portfolio"):
     # ==============================
     # ALLOCATION
     # ==============================
-    st.subheader("📊 Portfolio Allocation")
+    st.subheader("📊 Optimized Allocation")
 
     allocation_df = pd.DataFrame({
         "Stock": stocks,
@@ -111,30 +105,11 @@ if st.sidebar.button("Analyze Portfolio"):
 
     st.bar_chart(allocation_df.set_index("Stock"))
 
+    st.dataframe(allocation_df)
+
     # ==============================
     # GROWTH
     # ==============================
     st.subheader("📈 Portfolio Growth")
 
     st.line_chart(cumulative)
-
-    # ==============================
-    # SIGNALS
-    # ==============================
-    st.subheader("💡 Buy / Sell Signals")
-
-    signals = []
-
-    for stock in stocks:
-        if returns[stock].mean() > 0:
-            signals.append("BUY")
-        else:
-            signals.append("SELL")
-
-    signal_df = pd.DataFrame({
-        "Stock": stocks,
-        "Weight": weights,
-        "Signal": signals
-    })
-
-    st.dataframe(signal_df)
