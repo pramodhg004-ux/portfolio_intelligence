@@ -16,8 +16,8 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# ================= LANDING =================
-if not st.session_state.user:
+# ================= AUTH PAGE =================
+if st.session_state.user is None:
 
     st.title("🚀 Portfolio Intelligence Pro")
     st.subheader("Track. Analyze. Grow your wealth.")
@@ -29,7 +29,7 @@ if not st.session_state.user:
 
     if col1.button("Login"):
         try:
-            res = supabase.auth.sign_in_with_password({
+            supabase.auth.sign_in_with_password({
                 "email": email,
                 "password": password
             })
@@ -54,7 +54,7 @@ if not st.session_state.user:
 user = st.session_state.user
 
 # ================= SUBSCRIPTION =================
-def check_pro():
+def is_pro_user():
     try:
         res = supabase.table("subscriptions") \
             .select("*") \
@@ -64,7 +64,7 @@ def check_pro():
     except:
         return False
 
-is_pro = check_pro()
+is_pro = is_pro_user()
 
 # ================= SIDEBAR =================
 st.sidebar.title("📊 Menu")
@@ -81,7 +81,7 @@ if st.sidebar.button("Logout"):
 # ================= DASHBOARD =================
 if page == "🏠 Dashboard":
 
-    st.title(f"Welcome {user}")
+    st.title(f"👋 Welcome {user}")
 
     try:
         res = supabase.table("portfolios") \
@@ -90,18 +90,19 @@ if page == "🏠 Dashboard":
             .execute()
 
         st.metric("Saved Portfolios", len(res.data))
+
     except:
-        st.warning("Database connection issue")
+        st.warning("Database issue")
 
 # ================= ANALYZE =================
-if page == "📈 Analyze":
+elif page == "📈 Analyze":
 
     st.title("📊 Holdings Dashboard")
 
-    stocks_input = st.text_area("Stocks", "AAPL,MSFT")
-    investment = st.number_input("Investment ₹", value=100000)
+    stocks_input = st.text_area("Stocks (comma separated)", "AAPL,MSFT")
+    investment = st.number_input("Total Investment ₹", value=100000)
 
-    if st.button("Analyze"):
+    if st.button("Analyze Portfolio"):
 
         stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
 
@@ -123,23 +124,29 @@ if page == "📈 Analyze":
             df["Avg Price"] = df["Stock"].map(buy)
             df["LTP"] = df["Stock"].map(latest)
 
-            df["Qty"] = df["Investment ₹"] / df["Avg Price"]
-            df["Value"] = df["Qty"] * df["LTP"]
-            df["P&L"] = df["Value"] - df["Investment ₹"]
+            df["Quantity"] = df["Investment ₹"] / df["Avg Price"]
+            df["Current Value"] = df["Quantity"] * df["LTP"]
+            df["P&L"] = df["Current Value"] - df["Investment ₹"]
             df["Day %"] = ((df["LTP"] - df["Stock"].map(prev)) / df["Stock"].map(prev)) * 100
 
-            total_value = df["Value"].sum()
+            total_value = df["Current Value"].sum()
             pnl = total_value - investment
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Invested", f"₹{investment:,.0f}")
-            c2.metric("Value", f"₹{total_value:,.0f}")
+            c2.metric("Current Value", f"₹{total_value:,.0f}")
             c3.metric("P&L", f"₹{pnl:,.0f}")
 
+            st.subheader("📋 Holdings")
             st.dataframe(df)
-            st.bar_chart(df.set_index("Stock")["Value"])
 
-            # SAVE PORTFOLIO
+            st.subheader("📊 Allocation")
+            st.bar_chart(df.set_index("Stock")["Current Value"])
+
+            # SAVE
+            st.divider()
+            st.subheader("💾 Save Portfolio")
+
             name = st.text_input("Portfolio Name")
 
             if st.button("Save Portfolio"):
@@ -149,13 +156,14 @@ if page == "📈 Analyze":
                         "portfolio_name": name,
                         "stocks": stocks_input
                     }).execute()
-                    st.success("Saved!")
+                    st.success("Saved successfully")
                 except:
                     st.error("Save failed")
 
             # PRO FEATURE
             if is_pro:
-                st.subheader("Sector Allocation")
+                st.divider()
+                st.subheader("🏢 Sector Allocation")
 
                 sectors = {}
                 for s in stocks:
@@ -165,16 +173,16 @@ if page == "📈 Analyze":
                         sectors[s] = "Other"
 
                 df["Sector"] = df["Stock"].map(sectors)
-                st.bar_chart(df.groupby("Sector")["Value"].sum())
+                st.bar_chart(df.groupby("Sector")["Current Value"].sum())
 
             else:
-                st.warning("Upgrade to PRO")
+                st.warning("Upgrade to PRO for sector insights")
 
         except:
             st.error("Stock data error")
 
 # ================= PORTFOLIOS =================
-if page == "📁 Portfolios":
+elif page == "📁 Portfolios":
 
     st.title("📁 Your Portfolios")
 
@@ -191,18 +199,18 @@ if page == "📁 Portfolios":
             st.info("No portfolios yet")
 
     except:
-        st.error("Error loading portfolios")
+        st.error("Error loading data")
 
 # ================= UPGRADE =================
-if page == "💳 Upgrade":
+elif page == "💳 Upgrade":
 
     st.title("💳 Upgrade to PRO")
 
     if is_pro:
-        st.success("You are PRO user")
+        st.success("You are already PRO")
     else:
-        st.write("Unlock premium features:")
-        st.write("- Sector Analysis")
+        st.write("Unlock:")
+        st.write("- Sector analysis")
         st.write("- Advanced insights")
 
         st.markdown("""
@@ -210,7 +218,7 @@ if page == "💳 Upgrade":
             <button style="
                 background:#3399cc;
                 color:white;
-                padding:12px 24px;
+                padding:12px 20px;
                 border:none;
                 border-radius:6px;
                 font-size:16px;">
@@ -218,5 +226,3 @@ if page == "💳 Upgrade":
             </button>
         </a>
         """, unsafe_allow_html=True)
-
-        st.info("After payment, contact admin or enable webhook automation")
