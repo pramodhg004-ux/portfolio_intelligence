@@ -8,8 +8,8 @@ from supabase import create_client
 # ==============================
 # 🔑 SUPABASE CONFIG (PUT YOURS)
 # ==============================
-SUPABASE_URL = "PASTE_YOUR_URL_HERE"
-SUPABASE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY_HERE"
+SUPABASE_URL = "https://bveslnslwdttqzxqmrth.supabase.co"
+SUPABASE_KEY = "sb_publishable_avmvZzge1AZHSRcTXF4pfg_019rj-rC"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
