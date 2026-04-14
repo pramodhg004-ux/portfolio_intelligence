@@ -52,7 +52,6 @@ if mode == "Login":
 
 if not st.session_state.user:
     st.title("🚀 Portfolio Terminal")
-    st.subheader("Track • Analyze • Grow")
     st.stop()
 
 user = st.session_state.user
@@ -66,21 +65,6 @@ page = st.sidebar.radio("Navigate", [
 if page == "Terminal":
 
     st.title("💻 Trading Terminal")
-
-    try:
-        res = supabase.table("portfolios").select("*").eq("username", user).execute()
-        count = len(res.data)
-    except:
-        count = 0
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Portfolios", count)
-    c2.metric("Status", "LIVE")
-    c3.metric("User", user)
-
-    st.divider()
-
-    st.subheader("📊 Market Snapshot")
 
     stocks = ["AAPL", "MSFT", "GOOGL"]
 
@@ -99,35 +83,46 @@ elif page == "Analyze":
 
     st.title("📈 Portfolio Intelligence")
 
-    stocks_input = st.text_input("Enter Stocks (any)", "AAPL,MSFT,GOOGL")
+    stocks_input = st.text_input("Stocks", "AAPL,MSFT,GOOGL")
     investment = st.number_input("Investment ₹", value=100000)
 
     if st.button("Analyze"):
 
         stocks = [s.strip().upper() for s in stocks_input.split(",")]
 
-        valid_stocks = []
         price_data = {}
+        valid_stocks = []
 
-        # ===== FETCH DATA SAFELY =====
         for stock in stocks:
             try:
                 temp = yf.download(stock, period="6mo", progress=False)
 
-                if not temp.empty:
-                    valid_stocks.append(stock)
-                    price_data[stock] = temp["Close"]
+                if not temp.empty and "Close" in temp:
+                    series = temp["Close"].dropna()
+
+                    if len(series) > 2:
+                        price_data[stock] = series
+                        valid_stocks.append(stock)
+
             except:
                 continue
 
-        if not valid_stocks:
-            st.error("No valid stocks found")
+        # ===== SAFETY CHECK =====
+        if not price_data:
+            st.error("No valid stock data found")
             st.stop()
 
-        data = pd.DataFrame(price_data).dropna()
+        # ===== SAFE DATAFRAME CREATION =====
+        try:
+            data = pd.concat(price_data.values(), axis=1)
+            data.columns = valid_stocks
+            data = data.dropna()
+        except:
+            st.error("Data processing failed")
+            st.stop()
 
         if len(data) < 2:
-            st.error("Not enough data")
+            st.error("Not enough data to analyze")
             st.stop()
 
         latest = data.iloc[-1]
@@ -148,55 +143,21 @@ elif page == "Analyze":
         total_value = df["Value"].sum()
         pnl = total_value - investment
 
-        # ===== METRICS =====
         c1, c2, c3 = st.columns(3)
         c1.metric("Invested", f"₹{investment:,.0f}")
         c2.metric("Value", f"₹{total_value:,.0f}")
         c3.metric("P&L", f"₹{pnl:,.0f}")
 
-        st.divider()
-
         st.dataframe(df, use_container_width=True)
-
-        # ===== SAVE HISTORY =====
-        try:
-            supabase.table("portfolio_history").insert({
-                "username": user,
-                "portfolio_name": "default",
-                "date": pd.Timestamp.today().date().isoformat(),
-                "value": float(total_value)
-            }).execute()
-        except:
-            pass
-
-        # ===== HISTORY CHART =====
-        st.subheader("📊 Portfolio Growth")
-
-        try:
-            hist = supabase.table("portfolio_history") \
-                .select("*") \
-                .eq("username", user) \
-                .execute()
-
-            hist_df = pd.DataFrame(hist.data)
-
-            if not hist_df.empty:
-                hist_df["date"] = pd.to_datetime(hist_df["date"])
-                hist_df = hist_df.sort_values("date")
-
-                st.line_chart(hist_df.set_index("date")["value"])
-        except:
-            st.warning("No history data")
 
         # ===== DOWNLOAD =====
         buffer = io.BytesIO()
         df.to_excel(buffer, index=False)
 
         st.download_button(
-            label="📥 Download Portfolio",
+            "📥 Download Portfolio",
             data=buffer,
-            file_name="portfolio.xlsx",
-            mime="application/vnd.ms-excel"
+            file_name="portfolio.xlsx"
         )
 
 # ================= PORTFOLIOS =================
@@ -207,7 +168,7 @@ elif page == "Portfolios":
     name = st.text_input("Portfolio Name")
     stocks = st.text_area("Stocks")
 
-    if st.button("Save Portfolio"):
+    if st.button("Save"):
         try:
             supabase.table("portfolios").insert({
                 "username": user,
@@ -217,11 +178,3 @@ elif page == "Portfolios":
             st.success("Saved")
         except Exception as e:
             st.error(e)
-
-    try:
-        res = supabase.table("portfolios").select("*").eq("username", user).execute()
-
-        for r in res.data:
-            st.markdown(f"**{r['portfolio_name']}** → {r['stocks']}")
-    except:
-        st.warning("No portfolios found")
