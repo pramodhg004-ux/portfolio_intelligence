@@ -102,28 +102,65 @@ if st.button("Analyze Portfolio"):
     else:
         st.error("Weak portfolio")
 
-    # ALLOCATION
-    alloc = pd.DataFrame({
-        "Stock": returns.columns,
-        "Weight (%)": weights * 100,
-        "Investment ₹": weights * investment
-    }).sort_values(by="Weight (%)", ascending=False)
+    # ==============================
+# 📊 ADVANCED PORTFOLIO ANALYSIS
+# ==============================
 
-    st.subheader("📊 Allocation")
-    st.bar_chart(alloc.set_index("Stock")["Weight (%)"])
-    st.dataframe(alloc)
+latest_prices = data.iloc[-1]
 
-    # DOWNLOAD
-    buffer = io.BytesIO()
-    alloc.to_excel(buffer, index=False)
-    buffer.seek(0)
+alloc = pd.DataFrame({
+    "Stock": returns.columns,
+    "Weight (%)": weights * 100
+})
 
-    st.download_button(
-        label="📥 Download Portfolio",
-        data=buffer,
-        file_name="portfolio.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+alloc["Investment ₹"] = alloc["Weight (%)"] / 100 * investment
+alloc["Current Price"] = alloc["Stock"].map(latest_prices)
+
+# Assume buy price = first available price
+buy_prices = data.iloc[0]
+alloc["Buy Price"] = alloc["Stock"].map(buy_prices)
+
+alloc["Quantity"] = alloc["Investment ₹"] / alloc["Buy Price"]
+alloc["Current Value ₹"] = alloc["Quantity"] * alloc["Current Price"]
+
+alloc["P&L ₹"] = alloc["Current Value ₹"] - alloc["Investment ₹"]
+alloc["Return %"] = (alloc["P&L ₹"] / alloc["Investment ₹"]) * 100
+
+alloc = alloc.sort_values(by="Weight (%)", ascending=False)
+
+# ==============================
+# DISPLAY
+# ==============================
+st.subheader("📊 Advanced Portfolio Breakdown")
+st.dataframe(alloc)
+
+# ==============================
+# PORTFOLIO CHART
+# ==============================
+st.subheader("📈 Portfolio Performance")
+
+portfolio_series = (returns.dot(weights) + 1).cumprod()
+st.line_chart(portfolio_series)
+
+# ==============================
+# 📥 DOWNLOAD EXCEL (ADVANCED)
+# ==============================
+import io
+
+buffer = io.BytesIO()
+
+with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+    alloc.to_excel(writer, sheet_name='Portfolio', index=False)
+    portfolio_series.to_frame(name="Growth").to_excel(writer, sheet_name='Performance')
+
+buffer.seek(0)
+
+st.download_button(
+    label="📥 Download Advanced Portfolio Report",
+    data=buffer,
+    file_name="portfolio_report.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
     # GROWTH
     st.subheader("📈 Portfolio Growth")
