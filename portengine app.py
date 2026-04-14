@@ -1,199 +1,160 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import numpy as np
 from supabase import create_client
-import io
 
 # ================= CONFIG =================
-st.set_page_config(page_title="Portfolio Intelligence Pro", layout="wide")
+st.set_page_config(page_title="Portfolio Pro", layout="wide")
 
-SUPABASE_URL = "https://bveslnslwdttqzxqmrth.supabase.co"
-SUPABASE_KEY = "sb_publishable_avmvZzge1AZHSRcTXF4pfg_019rj-rC"
+supabase = create_client(
+    st.secrets["SUPABASE_URL"],
+    st.secrets["SUPABASE_KEY"]
+)
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# ================= AUTH =================
-st.sidebar.title("🔐 Account")
-
-auth_mode = st.sidebar.radio("Choose", ["Login", "Signup"])
-email = st.sidebar.text_input("Email")
-password = st.sidebar.text_input("Password", type="password")
-
+# ================= SESSION =================
 if "user" not in st.session_state:
     st.session_state.user = None
 
-if auth_mode == "Signup":
-    if st.sidebar.button("Create Account"):
+# ================= LOGIN =================
+st.sidebar.title("🔐 Account")
+
+mode = st.sidebar.radio("Mode", ["Login", "Signup"])
+email = st.sidebar.text_input("Email")
+password = st.sidebar.text_input("Password", type="password")
+
+if mode == "Signup":
+    if st.sidebar.button("Signup"):
         try:
             supabase.auth.sign_up({"email": email, "password": password})
-            st.success("Signup success")
+            st.success("Account created. Now login.")
         except Exception as e:
             st.error(e)
 
-if auth_mode == "Login":
+if mode == "Login":
     if st.sidebar.button("Login"):
         try:
-            supabase.auth.sign_in_with_password({"email": email, "password": password})
+            supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
             st.session_state.user = email
             st.rerun()
         except:
-            st.session_state.user = email
-            st.warning("Login bypassed (dev mode)")
-            st.rerun()
+            st.error("Login failed")
 
 if not st.session_state.user:
-    st.title("🔐 Login Required")
+    st.title("🚀 Portfolio Intelligence Pro")
+    st.subheader("Track • Analyze • Grow")
     st.stop()
 
-# ================= SUBSCRIPTION =================
-try:
-    sub = supabase.table("subscriptions").select("*") \
-        .eq("username", st.session_state.user).execute()
-    is_pro = len(sub.data) > 0
-except:
-    is_pro = False
+user = st.session_state.user
 
-# ================= NAV =================
-page = st.sidebar.radio(
-    "Navigate",
-    ["🏠 Dashboard", "📈 Analyze", "📁 Portfolios", "💳 Upgrade"]
-)
+# ================= CHECK PRO =================
+def is_pro():
+    try:
+        res = supabase.table("subscriptions").select("*").eq("username", user).execute()
+        return len(res.data) > 0
+    except:
+        return False
+
+# ================= SIDEBAR =================
+page = st.sidebar.radio("Navigate", [
+    "Dashboard", "Analyze", "Portfolios", "Upgrade"
+])
 
 # ================= DASHBOARD =================
-if page == "🏠 Dashboard":
+if page == "Dashboard":
 
-    st.title("🏠 Portfolio Dashboard")
+    st.title("📊 Dashboard")
+
+    col1, col2 = st.columns(2)
 
     try:
-        res = supabase.table("portfolios") \
-            .select("*") \
-            .eq("username", st.session_state.user) \
-            .execute()
-
-        st.metric("Saved Portfolios", len(res.data))
+        res = supabase.table("portfolios").select("*").eq("username", user).execute()
+        count = len(res.data)
     except:
-        st.warning("Database issue")
+        count = 0
+
+    col1.metric("Portfolios", count)
+    col2.metric("Status", "PRO" if is_pro() else "Free")
 
 # ================= ANALYZE =================
-elif page == "📈 Analyze":
+elif page == "Analyze":
 
-    st.title("📊 Holdings")
+    st.title("📈 Portfolio Analyzer")
 
-    stocks_input = st.text_area("Stocks", "AAPL,MSFT")
+    stocks_input = st.text_input("Stocks (comma separated)", "AAPL,MSFT")
     investment = st.number_input("Investment ₹", value=100000)
 
-    if st.button("Analyze", key="analyze_btn"):
+    if st.button("Analyze", key="analyze"):
 
-        stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
+        stocks = [s.strip().upper() for s in stocks_input.split(",")]
+
         data = yf.download(stocks, period="6mo", progress=False)
 
         if isinstance(data.columns, pd.MultiIndex):
             data = data["Close"]
 
-        data = data.dropna()
-
         latest = data.iloc[-1]
-        prev = data.iloc[-2]
         buy = data.iloc[0]
 
         df = pd.DataFrame({"Stock": stocks})
-
-        df["Investment ₹"] = investment / len(stocks)
-        df["Avg Price"] = df["Stock"].map(buy)
+        df["Investment"] = investment / len(stocks)
+        df["Buy"] = df["Stock"].map(buy)
         df["LTP"] = df["Stock"].map(latest)
 
-        df["Qty"] = df["Investment ₹"] / df["Avg Price"]
+        df["Qty"] = df["Investment"] / df["Buy"]
         df["Value"] = df["Qty"] * df["LTP"]
-        df["P&L"] = df["Value"] - df["Investment ₹"]
-        df["Day %"] = ((df["LTP"] - df["Stock"].map(prev)) / df["Stock"].map(prev)) * 100
+        df["PnL"] = df["Value"] - df["Investment"]
 
-        total_value = df["Value"].sum()
-        pnl = total_value - investment
+        total = df["Value"].sum()
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Invested", f"₹{investment:,.0f}")
-        c2.metric("Value", f"₹{total_value:,.0f}")
-        c3.metric("P&L", f"₹{pnl:,.0f}")
-
+        st.metric("Total Value", f"₹{total:,.0f}")
         st.dataframe(df)
+
         st.bar_chart(df.set_index("Stock")["Value"])
 
-        # SAVE HISTORY
-        try:
-            supabase.table("portfolio_history").insert({
-                "username": st.session_state.user,
-                "portfolio_name": "default",
-                "date": pd.Timestamp.today().date().isoformat(),
-                "value": float(total_value)
-            }).execute()
-        except:
-            pass
-
-        # PRO FEATURES
-        if is_pro:
-            st.subheader("🏢 Sector Allocation")
-
-            sectors = {}
-            for s in stocks:
-                try:
-                    sectors[s] = yf.Ticker(s).info.get("sector", "Other")
-                except:
-                    sectors[s] = "Other"
-
-            df["Sector"] = df["Stock"].map(sectors)
-            st.bar_chart(df.groupby("Sector")["Value"].sum())
-        else:
-            st.info("Upgrade to PRO for sector analysis")
-
 # ================= PORTFOLIOS =================
-elif page == "📁 Portfolios":
+elif page == "Portfolios":
 
     st.title("📁 Your Portfolios")
 
     name = st.text_input("Portfolio Name")
     stocks = st.text_area("Stocks")
 
-    if st.button("Save Portfolio", key="save_portfolio"):
+    if st.button("Save", key="save_port"):
         try:
             supabase.table("portfolios").insert({
-                "username": st.session_state.user,
+                "username": user,
                 "portfolio_name": name,
                 "stocks": stocks
             }).execute()
-            st.success("Saved")
+            st.success("Saved!")
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(e)
 
     try:
-        res = supabase.table("portfolios") \
-            .select("*") \
-            .eq("username", st.session_state.user) \
-            .execute()
+        res = supabase.table("portfolios").select("*").eq("username", user).execute()
 
-        for r in res.data:
-            st.write(f"📌 {r['portfolio_name']} → {r['stocks']}")
+        for p in res.data:
+            st.card(f"{p['portfolio_name']} → {p['stocks']}")
     except:
-        st.warning("Unable to fetch portfolios")
+        st.warning("No data")
 
 # ================= UPGRADE =================
-elif page == "💳 Upgrade":
+elif page == "Upgrade":
 
-    st.title("💳 Go PRO")
+    st.title("💳 Upgrade")
 
-    if is_pro:
-        st.success("You are PRO user")
+    if is_pro():
+        st.success("You are PRO")
     else:
-        st.write("Unlock premium features:")
-        st.write("- Sector Analysis")
-        st.write("- Advanced analytics")
+        st.write("Unlock advanced analytics")
 
-        if st.button("Upgrade Now", key="upgrade_btn"):
-            try:
-                supabase.table("subscriptions").insert({
-                    "username": st.session_state.user,
-                    "plan": "pro"
-                }).execute()
-                st.success("Upgraded!")
-            except:
-                st.error("Upgrade failed")
+        st.markdown("""
+        <a href="https://rzp.io/l/YOUR_LINK" target="_blank">
+            <button style="padding:10px;background:#00b386;color:white;border:none;">
+            Pay ₹499
+            </button>
+        </a>
+        """, unsafe_allow_html=True)
