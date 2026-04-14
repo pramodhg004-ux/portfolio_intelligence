@@ -84,40 +84,66 @@ page = st.sidebar.radio("Navigate", [
 ])
 
 # ================= TERMINAL =================
+import requests
+
+# ================= TERMINAL =================
 if page == "Terminal":
 
-    st.title("💻 Bloomberg Terminal")
+    st.title("💻 Live Trading Terminal")
 
     watchlist = st.text_input(
         "Watchlist",
-        "AAPL,MSFT,RELIANCE,TCS"
+        "AAPL,MSFT,RELIANCE"
     )
 
-    stocks = [format_stock(s.strip()) for s in watchlist.split(",")]
+    stocks = [s.strip().upper() for s in watchlist.split(",")]
 
-    price_data = {}
-    valid = []
+    api_key = st.secrets["FINNHUB_API_KEY"]
 
-    for s in stocks:
+    data_rows = []
+
+    for stock in stocks:
         try:
-            temp = yf.download(s, period="1d", interval="1m", progress=False)
+            url = f"https://finnhub.io/api/v1/quote?symbol={stock}&token={api_key}"
+            r = requests.get(url).json()
 
-            if not temp.empty:
-                price_data[s] = temp["Close"]
-                valid.append(s)
+            if r and "c" in r:
+                price = r["c"]
+                prev_close = r["pc"]
+
+                change = ((price - prev_close) / prev_close) * 100
+
+                data_rows.append({
+                    "Stock": stock,
+                    "Price": price,
+                    "Change %": change
+                })
+
         except:
             continue
 
-    if not price_data:
-        st.warning("No valid data")
+    if not data_rows:
+        st.warning("No data fetched")
     else:
-        data = pd.concat(price_data.values(), axis=1)
-        data.columns = valid
-        data = data.dropna()
+        df = pd.DataFrame(data_rows)
 
-        latest = data.iloc[-1]
-        prev = data.iloc[-2]
+        # ===== METRICS GRID =====
+        cols = st.columns(len(df))
 
+        for i, row in df.iterrows():
+            color = "green" if row["Change %"] > 0 else "red"
+
+            cols[i].markdown(f"""
+            <div style="background:#111827;padding:15px;border-radius:10px;">
+            <h4>{row['Stock']}</h4>
+            <h2>{row['Price']:.2f}</h2>
+            <p style="color:{color}">{row['Change %']:.2f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.divider()
+
+        st.dataframe(df, use_container_width=True)
         # ===== TERMINAL GRID =====
         cols = st.columns(len(valid))
 
