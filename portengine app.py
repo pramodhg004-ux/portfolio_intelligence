@@ -131,12 +131,18 @@ if st.button("Analyze Portfolio"):
     # 💾 SAVE TO DATABASE
     # ==============================
     if st.button("💾 Save Portfolio"):
-        supabase.table("portfolios").insert({
+    try:
+        response = supabase.table("portfolios").insert({
             "username": st.session_state.user,
             "stocks": stocks_input
         }).execute()
 
-        st.success("Saved successfully!")
+        st.success("✅ Saved to Supabase!")
+
+        st.write("DEBUG RESPONSE:", response)
+
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
 
 # ==============================
 # 📁 LOAD SAVED PORTFOLIOS
