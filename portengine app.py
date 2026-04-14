@@ -4,6 +4,7 @@ import yfinance as yf
 import numpy as np
 from scipy.optimize import minimize
 from supabase import create_client
+import io
 
 # ==============================
 # 🔑 SUPABASE CONFIG
@@ -14,7 +15,7 @@ SUPABASE_KEY = "sb_publishable_avmvZzge1AZHSRcTXF4pfg_019rj-rC"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==============================
-# 🔐 LOGIN
+# LOGIN
 # ==============================
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -31,16 +32,13 @@ if st.session_state.user is None:
     st.stop()
 
 # ==============================
-# 🚀 MAIN APP
+# MAIN APP
 # ==============================
 st.title(f"🚀 Portfolio Intelligence — {st.session_state.user}")
 
 stocks_input = st.text_area("Stocks (comma separated)", "AAPL,MSFT,GOOGL")
 investment = st.number_input("Investment ₹", value=100000)
 
-# ==============================
-# ANALYZE
-# ==============================
 if st.button("Analyze Portfolio"):
 
     stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
@@ -85,32 +83,26 @@ if st.button("Analyze Portfolio"):
     cumulative = (1 + returns.dot(weights)).cumprod()
     drawdown = (cumulative / cumulative.cummax() - 1).min()
 
-    # ==============================
-    # DISPLAY METRICS
-    # ==============================
+    # METRICS
     st.subheader("📊 Portfolio Metrics")
-
     c1, c2, c3, c4 = st.columns(4)
+
     c1.metric("Return", f"{port_return*100:.2f}%")
     c2.metric("Volatility", f"{port_vol*100:.2f}%")
     c3.metric("Sharpe", f"{sharpe:.2f}")
     c4.metric("Max Drawdown", f"{drawdown*100:.2f}%")
 
-    # ==============================
     # RECOMMENDATION
-    # ==============================
     st.subheader("📌 Recommendation")
 
     if sharpe > 1:
-        st.success("Strong portfolio — good performance")
+        st.success("Strong portfolio")
     elif sharpe > 0.5:
-        st.warning("Average portfolio — can improve")
+        st.warning("Average portfolio")
     else:
-        st.error("Weak portfolio — rebalance needed")
+        st.error("Weak portfolio")
 
-    # ==============================
     # ALLOCATION
-    # ==============================
     alloc = pd.DataFrame({
         "Stock": returns.columns,
         "Weight (%)": weights * 100,
@@ -120,47 +112,37 @@ if st.button("Analyze Portfolio"):
     st.subheader("📊 Allocation")
     st.bar_chart(alloc.set_index("Stock")["Weight (%)"])
     st.dataframe(alloc)
-    # ==============================
-# 📥 DOWNLOAD PORTFOLIO
-# ==============================
-import io
 
-buffer = io.BytesIO()
-alloc.to_excel(buffer, index=False)
-buffer.seek(0)
+    # DOWNLOAD
+    buffer = io.BytesIO()
+    alloc.to_excel(buffer, index=False)
+    buffer.seek(0)
 
-st.download_button(
-    label="📥 Download Portfolio (Excel)",
-    data=buffer,
-    file_name="portfolio.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+    st.download_button(
+        label="📥 Download Portfolio",
+        data=buffer,
+        file_name="portfolio.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-    # ==============================
     # GROWTH
-    # ==============================
     st.subheader("📈 Portfolio Growth")
     st.line_chart(cumulative)
 
-    # ==============================
-    # SAVE TO DATABASE
-    # ==============================
+    # SAVE
     if st.button("💾 Save Portfolio"):
         try:
-            response = supabase.table("portfolios").insert({
+            supabase.table("portfolios").insert({
                 "username": st.session_state.user,
                 "stocks": stocks_input
             }).execute()
 
             st.success("✅ Saved to Supabase!")
-            st.write("DEBUG RESPONSE:", response)
 
         except Exception as e:
             st.error(f"❌ Error: {e}")
 
-# ==============================
-# LOAD SAVED PORTFOLIOS
-# ==============================
+# LOAD SAVED
 st.subheader("📁 Your Saved Portfolios")
 
 try:
@@ -169,8 +151,11 @@ try:
         .eq("username", st.session_state.user) \
         .execute()
 
-    for row in response.data:
-        st.write(f"• {row['stocks']}")
+    if response.data:
+        for row in response.data:
+            st.write(f"• {row['stocks']}")
+    else:
+        st.info("No saved portfolios yet")
 
 except Exception as e:
-    st.error(f"Error loading portfolios: {e}")
+    st.error(f"Error: {e}")
