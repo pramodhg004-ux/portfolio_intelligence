@@ -40,35 +40,33 @@ if auth_mode == "Signup":
             })
             st.success("Signup successful! Now login.")
         except Exception as e:
-            st.error(f"Signup failed: {e}")
+            st.error(e)
 
-# LOGIN (bypass confirmation)
+# LOGIN
 if auth_mode == "Login":
     if st.sidebar.button("Login"):
         try:
-            res = supabase.auth.sign_in_with_password({
+            supabase.auth.sign_in_with_password({
                 "email": email,
                 "password": password
             })
-
             st.session_state.user = email
             st.success("Logged in!")
             st.rerun()
-
         except Exception as e:
             if "Email not confirmed" in str(e):
                 st.session_state.user = email
                 st.warning("Logged in without verification")
                 st.rerun()
             else:
-                st.error(f"Login failed: {e}")
+                st.error(e)
 
 if st.session_state.user is None:
     st.title("🔐 Please Login")
     st.stop()
 
 # ==============================
-# SIDEBAR NAV
+# NAVIGATION
 # ==============================
 st.sidebar.title("📊 Dashboard")
 
@@ -78,13 +76,12 @@ page = st.sidebar.radio(
 )
 
 # ==============================
-# ANALYZE PAGE
+# ANALYZE
 # ==============================
 if page == "📈 Analyze":
 
     st.title("🚀 Portfolio Intelligence Pro")
 
-    # LOAD SAVED
     load_option = st.checkbox("📂 Load saved portfolio")
 
     stocks_input = "AAPL,MSFT,GOOGL"
@@ -102,13 +99,10 @@ if page == "📈 Analyze":
             stocks_input = selected_data["stocks"]
 
     stocks_input = st.text_area("Stocks", stocks_input)
-
     portfolio_name = st.text_input("Portfolio Name")
     investment = st.number_input("Investment ₹", value=100000)
 
-    auto_refresh = st.checkbox("🔄 Auto Refresh", value=False)
-
-    if st.button("Analyze Portfolio") or auto_refresh:
+    if st.button("Analyze Portfolio"):
 
         stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
 
@@ -121,7 +115,7 @@ if page == "📈 Analyze":
         returns = data.pct_change().dropna()
 
         if returns.empty:
-            st.error("No data available")
+            st.error("No data")
             st.stop()
 
         # OPTIMIZATION
@@ -156,18 +150,12 @@ if page == "📈 Analyze":
         c3.metric("Sharpe", f"{sharpe:.2f}")
         c4.metric("Drawdown", f"{drawdown*100:.2f}%")
 
-        # AI INSIGHTS
+        # AI
         st.subheader("🤖 AI Insights")
-
-        if sharpe > 1.2:
-            st.success("Excellent portfolio")
-        elif sharpe > 0.7:
-            st.warning("Moderate performance")
+        if sharpe > 1:
+            st.success("Strong portfolio")
         else:
-            st.error("Poor portfolio")
-
-        if drawdown < -0.3:
-            st.warning("High risk detected")
+            st.warning("Consider diversification")
 
         # TABLE
         latest_prices = data.iloc[-1]
@@ -181,47 +169,37 @@ if page == "📈 Analyze":
         alloc["Investment ₹"] = alloc["Weight (%)"] / 100 * investment
         alloc["Buy Price"] = alloc["Stock"].map(buy_prices)
         alloc["Current Price"] = alloc["Stock"].map(latest_prices)
-
         alloc["Quantity"] = alloc["Investment ₹"] / alloc["Buy Price"]
         alloc["Value ₹"] = alloc["Quantity"] * alloc["Current Price"]
         alloc["P&L ₹"] = alloc["Value ₹"] - alloc["Investment ₹"]
 
-        st.subheader("📊 Portfolio Breakdown")
         st.dataframe(alloc)
 
-        st.subheader("📈 Portfolio Growth")
+        st.subheader("📈 Growth")
         st.line_chart(cumulative)
-        # ==============================
-# SAVE DAILY PERFORMANCE
-# ==============================
-try:
-    today_value = float(cumulative.iloc[-1] * investment)
 
-    supabase.table("portfolio_history").insert({
-        "username": st.session_state.user,
-        "portfolio_name": portfolio_name,
-        "date": pd.Timestamp.today().date().isoformat(),
-        "value": today_value
-    }).execute()
+        # SAVE HISTORY
+        try:
+            today_value = float(cumulative.iloc[-1] * investment)
 
-except:
-    pass
+            supabase.table("portfolio_history").insert({
+                "username": st.session_state.user,
+                "portfolio_name": portfolio_name,
+                "date": pd.Timestamp.today().date().isoformat(),
+                "value": today_value
+            }).execute()
+        except:
+            pass
 
         # DOWNLOAD
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             alloc.to_excel(writer, sheet_name='Portfolio', index=False)
-            cumulative.to_frame(name="Growth").to_excel(writer, sheet_name='Performance')
-
         buffer.seek(0)
 
-        st.download_button(
-            label="📥 Download Report",
-            data=buffer,
-            file_name="portfolio_report.xlsx"
-        )
+        st.download_button("📥 Download", buffer, "portfolio.xlsx")
 
-        # SAVE
+        # SAVE PORTFOLIO
         if st.button("💾 Save Portfolio"):
             try:
                 supabase.table("portfolios").insert({
@@ -229,62 +207,50 @@ except:
                     "portfolio_name": portfolio_name,
                     "stocks": stocks_input
                 }).execute()
-                st.success("Saved successfully!")
+                st.success("Saved!")
             except Exception as e:
                 st.error(e)
 
-        # AUTO REFRESH
-        if auto_refresh:
-            time.sleep(10)
-            st.rerun()
-
 # ==============================
-# SAVED PORTFOLIOS
+# SAVED PAGE
 # ==============================
 if page == "📁 Saved Portfolios":
 
     st.title("📁 Your Portfolios")
 
-    try:
-        res = supabase.table("portfolios") \
+    res = supabase.table("portfolios") \
+        .select("*") \
+        .eq("username", st.session_state.user) \
+        .order("created_at", desc=True) \
+        .execute()
+
+    if res.data:
+        names = [r["portfolio_name"] for r in res.data]
+        selected = st.selectbox("Select Portfolio", names)
+
+        selected_data = next(r for r in res.data if r["portfolio_name"] == selected)
+
+        st.write("Stocks:", selected_data["stocks"])
+
+        # HISTORY
+        st.subheader("📈 Performance History")
+
+        history = supabase.table("portfolio_history") \
             .select("*") \
             .eq("username", st.session_state.user) \
-            .order("created_at", desc=True) \
+            .eq("portfolio_name", selected) \
+            .order("date") \
             .execute()
 
-        if res.data:
-            names = [r["portfolio_name"] for r in res.data]
+        if history.data:
+            df = pd.DataFrame(history.data)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date")
 
-            selected = st.selectbox("Select Portfolio", names)
+            st.line_chart(df.set_index("date")["value"])
 
-            selected_data = next(r for r in res.data if r["portfolio_name"] == selected)
-
-            st.write("📌 Stocks:", selected_data["stocks"])
-            st.write("📅 Created:", selected_data["created_at"])
-
-        else:
-            st.info("No portfolios yet")
-
-    except Exception as e:
-        st.error(e)
-st.subheader("📈 Portfolio Performance History")
-
-history = supabase.table("portfolio_history") \
-    .select("*") \
-    .eq("username", st.session_state.user) \
-    .eq("portfolio_name", selected) \
-    .order("date") \
-    .execute()
-
-if history.data:
-    df = pd.DataFrame(history.data)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date")
-
-    st.line_chart(df.set_index("date")["value"])
 # ==============================
 # SETTINGS
 # ==============================
 if page == "⚙️ Settings":
-    st.title("⚙️ Settings")
-    st.write("Coming soon...")
+    st.title("Settings")
