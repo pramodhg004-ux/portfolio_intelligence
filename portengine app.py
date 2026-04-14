@@ -191,8 +191,7 @@ if page == "💳 Upgrade":
         st.write("Unlock premium features:")
         st.write("- Sector Analysis")
         st.write("- Advanced analytics")
-
-        if st.button("Save"):
+if st.button("Save"):
     try:
         supabase.table("portfolios").insert({
             "username": st.session_state.user,
