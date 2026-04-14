@@ -192,9 +192,13 @@ if page == "💳 Upgrade":
         st.write("- Sector Analysis")
         st.write("- Advanced analytics")
 
-        if st.button("Upgrade Now"):
-            supabase.table("subscriptions").insert({
-                "username": st.session_state.user,
-                "plan": "pro"
-            }).execute()
-            st.success("Upgraded!")
+        if st.button("Save"):
+    try:
+        supabase.table("portfolios").insert({
+            "username": st.session_state.user,
+            "portfolio_name": name,
+            "stocks": stocks
+        }).execute()
+        st.success("Saved")
+    except Exception as e:
+        st.error(f"Error: {e}")
