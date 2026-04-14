@@ -5,6 +5,7 @@ import numpy as np
 from supabase import create_client
 from streamlit_autorefresh import st_autorefresh
 import io
+import requests
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Portfolio Terminal Pro", layout="wide")
@@ -14,23 +15,16 @@ supabase = create_client(
     st.secrets["SUPABASE_KEY"]
 )
 
-# ================= BLOOMBERG STYLE =================
+# ================= AUTO REFRESH =================
+st_autorefresh(interval=3000, key="live_refresh")
+
+# ================= STYLE =================
 st.markdown("""
 <style>
-body {
-    background-color: #0b0f1a;
-    color: #e6e6e6;
-}
-.metric-card {
-    background-color: #111827;
-    padding: 15px;
-    border-radius: 10px;
-}
+body {background-color:#0b0f1a;color:#e6e6e6;}
+.card {background:#111827;padding:15px;border-radius:10px;}
 </style>
 """, unsafe_allow_html=True)
-
-# ================= AUTO REFRESH =================
-st_autorefresh(interval=2000, key="live_refresh")  # 2 sec refresh
 
 # ================= SESSION =================
 if "user" not in st.session_state:
@@ -71,20 +65,8 @@ if not st.session_state.user:
 
 user = st.session_state.user
 
-# ================= HELPERS =================
-def format_stock(symbol):
-    symbol = symbol.upper().strip()
-    if "." in symbol or "-" in symbol:
-        return symbol
-    return symbol + ".NS" if len(symbol) <= 6 else symbol
-
 # ================= NAV =================
-page = st.sidebar.radio("Navigate", [
-    "Terminal", "Analyze", "Portfolios"
-])
-
-# ================= TERMINAL =================
-import requests
+page = st.sidebar.radio("Navigate", ["Terminal", "Analyze", "Portfolios"])
 
 # ================= TERMINAL =================
 if page == "Terminal":
@@ -93,11 +75,10 @@ if page == "Terminal":
 
     watchlist = st.text_input(
         "Watchlist",
-        "AAPL,MSFT,RELIANCE"
+        "AAPL,MSFT,TSLA"
     )
 
     stocks = [s.strip().upper() for s in watchlist.split(",")]
-
     api_key = st.secrets["FINNHUB_API_KEY"]
 
     data_rows = []
@@ -107,7 +88,7 @@ if page == "Terminal":
             url = f"https://finnhub.io/api/v1/quote?symbol={stock}&token={api_key}"
             r = requests.get(url).json()
 
-            if r and "c" in r:
+            if r and "c" in r and r["c"] != 0:
                 price = r["c"]
                 prev_close = r["pc"]
 
@@ -127,14 +108,13 @@ if page == "Terminal":
     else:
         df = pd.DataFrame(data_rows)
 
-        # ===== METRICS GRID =====
         cols = st.columns(len(df))
 
         for i, row in df.iterrows():
             color = "green" if row["Change %"] > 0 else "red"
 
             cols[i].markdown(f"""
-            <div style="background:#111827;padding:15px;border-radius:10px;">
+            <div class="card">
             <h4>{row['Stock']}</h4>
             <h2>{row['Price']:.2f}</h2>
             <p style="color:{color}">{row['Change %']:.2f}%</p>
@@ -142,52 +122,30 @@ if page == "Terminal":
             """, unsafe_allow_html=True)
 
         st.divider()
-
         st.dataframe(df, use_container_width=True)
-        # ===== TERMINAL GRID =====
-        cols = st.columns(len(valid))
-
-        for i, stock in enumerate(valid):
-            price = latest[stock]
-            change = ((latest[stock] - prev[stock]) / prev[stock]) * 100
-
-            color = "green" if change > 0 else "red"
-
-            cols[i].markdown(f"""
-            <div class="metric-card">
-            <h4>{stock}</h4>
-            <h2>₹{price:.2f}</h2>
-            <p style="color:{color}">{change:.2f}%</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.divider()
-
-        st.subheader("📊 Live Chart")
-        st.line_chart(data)
 
 # ================= ANALYZE =================
 elif page == "Analyze":
 
     st.title("📈 Portfolio Intelligence")
 
-    stocks_input = st.text_input("Stocks", "AAPL,RELIANCE,TCS")
+    stocks_input = st.text_input("Stocks", "AAPL,MSFT,TSLA")
     investment = st.number_input("Investment ₹", value=100000)
 
     if st.button("Analyze"):
 
-        stocks = [format_stock(s.strip()) for s in stocks_input.split(",")]
+        stocks = [s.strip().upper() for s in stocks_input.split(",")]
 
         price_data = {}
         valid = []
 
-        for s in stocks:
+        for stock in stocks:
             try:
-                temp = yf.download(s, period="6mo", progress=False)
+                temp = yf.download(stock, period="6mo", progress=False)
 
                 if not temp.empty:
-                    price_data[s] = temp["Close"]
-                    valid.append(s)
+                    price_data[stock] = temp["Close"]
+                    valid.append(stock)
             except:
                 continue
 
@@ -220,13 +178,16 @@ elif page == "Analyze":
         c2.metric("Value", f"₹{total_value:,.0f}")
         c3.metric("P&L", f"₹{pnl:,.0f}")
 
-        st.dataframe(df)
+        st.dataframe(df, use_container_width=True)
 
-        # ===== DOWNLOAD =====
         buffer = io.BytesIO()
         df.to_excel(buffer, index=False)
 
-        st.download_button("Download", buffer, "portfolio.xlsx")
+        st.download_button(
+            "📥 Download Portfolio",
+            buffer,
+            "portfolio.xlsx"
+        )
 
 # ================= PORTFOLIOS =================
 elif page == "Portfolios":
@@ -236,7 +197,7 @@ elif page == "Portfolios":
     name = st.text_input("Portfolio Name")
     stocks = st.text_area("Stocks")
 
-    if st.button("Save"):
+    if st.button("Save Portfolio"):
         try:
             supabase.table("portfolios").insert({
                 "username": user,
@@ -246,3 +207,11 @@ elif page == "Portfolios":
             st.success("Saved")
         except Exception as e:
             st.error(e)
+
+    try:
+        res = supabase.table("portfolios").select("*").eq("username", user).execute()
+
+        for r in res.data:
+            st.markdown(f"**{r['portfolio_name']}** → {r['stocks']}")
+    except:
+        st.warning("No portfolios found")
