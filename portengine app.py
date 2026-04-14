@@ -267,7 +267,21 @@ if page == "📁 Saved Portfolios":
 
     except Exception as e:
         st.error(e)
+st.subheader("📈 Portfolio Performance History")
 
+history = supabase.table("portfolio_history") \
+    .select("*") \
+    .eq("username", st.session_state.user) \
+    .eq("portfolio_name", selected) \
+    .order("date") \
+    .execute()
+
+if history.data:
+    df = pd.DataFrame(history.data)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date")
+
+    st.line_chart(df.set_index("date")["value"])
 # ==============================
 # SETTINGS
 # ==============================
