@@ -39,10 +39,27 @@ if st.sidebar.button("Analyze Portfolio"):
     # ==============================
     data = yf.download(stocks, start="2020-01-01")
 
-    if isinstance(data.columns, pd.MultiIndex):
-        data = data["Close"]
+# Fix multi-stock structure
+if isinstance(data.columns, pd.MultiIndex):
+    data = data["Close"]
 
-    returns = data.pct_change().dropna()
+# Drop stocks with no data
+data = data.dropna(axis=1, how="all")
+
+# If nothing left
+if data.shape[1] == 0:
+    st.error("❌ No valid stock data found")
+    st.stop()
+
+# Align data (important!)
+data = data.dropna()
+
+returns = data.pct_change().dropna()
+
+# Final safety check
+if returns.empty:
+    st.error("❌ Not enough data to calculate returns")
+    st.stop()
 
     # ==============================
     # OPTIMIZATION FUNCTION
