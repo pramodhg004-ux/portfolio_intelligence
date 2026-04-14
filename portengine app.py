@@ -75,38 +75,18 @@ page = st.sidebar.radio(
     ["📈 Analyze", "📁 Saved Portfolios", "⚙️ Settings"]
 )
 
-# ==============================
-# ANALYZE
-# ==============================
 if page == "📈 Analyze":
 
-    st.title("🚀 Portfolio Intelligence Pro")
+    st.title("📊 Holdings Dashboard")
 
-    load_option = st.checkbox("📂 Load saved portfolio")
+    stocks_input = st.text_area("Stocks", "AAPL,MSFT,GOOGL")
+    investment = st.number_input("Total Investment ₹", value=100000)
 
-    stocks_input = "AAPL,MSFT,GOOGL"
-
-    if load_option:
-        res = supabase.table("portfolios") \
-            .select("*") \
-            .eq("username", st.session_state.user) \
-            .execute()
-
-        if res.data:
-            names = [r["portfolio_name"] for r in res.data]
-            selected = st.selectbox("Choose portfolio", names)
-            selected_data = next(r for r in res.data if r["portfolio_name"] == selected)
-            stocks_input = selected_data["stocks"]
-
-    stocks_input = st.text_area("Stocks", stocks_input)
-    portfolio_name = st.text_input("Portfolio Name")
-    investment = st.number_input("Investment ₹", value=100000)
-
-    if st.button("Analyze Portfolio"):
+    if st.button("Analyze"):
 
         stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
 
-        data = yf.download(stocks, period="1y", progress=False)
+        data = yf.download(stocks, period="6mo", progress=False)
 
         if isinstance(data.columns, pd.MultiIndex):
             data = data["Close"]
@@ -114,9 +94,69 @@ if page == "📈 Analyze":
         data = data.dropna()
         returns = data.pct_change().dropna()
 
-        if returns.empty:
-            st.error("No data")
-            st.stop()
+        n = len(stocks)
+        weights = np.ones(n) / n  # equal weight for simplicity
+
+        latest_prices = data.iloc[-1]
+        buy_prices = data.iloc[0]
+
+        df = pd.DataFrame({
+            "Stock": stocks,
+            "Weight": weights
+        })
+
+        df["Investment ₹"] = df["Weight"] * investment
+        df["Avg Price"] = df["Stock"].map(buy_prices)
+        df["LTP"] = df["Stock"].map(latest_prices)
+
+        df["Quantity"] = df["Investment ₹"] / df["Avg Price"]
+        df["Current Value"] = df["Quantity"] * df["LTP"]
+        df["P&L ₹"] = df["Current Value"] - df["Investment ₹"]
+        df["P&L %"] = (df["P&L ₹"] / df["Investment ₹"]) * 100
+
+        # ==============================
+        # TOP METRICS
+        # ==============================
+        total_investment = df["Investment ₹"].sum()
+        total_value = df["Current Value"].sum()
+        total_pnl = total_value - total_investment
+        total_return = (total_pnl / total_investment) * 100
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric("Invested", f"₹{total_investment:,.0f}")
+        c2.metric("Current Value", f"₹{total_value:,.0f}")
+        c3.metric("P&L", f"₹{total_pnl:,.0f}", f"{total_return:.2f}%")
+        c4.metric("Stocks", len(stocks))
+
+        # ==============================
+        # HOLDINGS TABLE
+        # ==============================
+        st.subheader("📋 Holdings")
+
+        st.dataframe(df.style.format({
+            "Investment ₹": "₹{:,.0f}",
+            "Current Value": "₹{:,.0f}",
+            "P&L ₹": "₹{:,.0f}",
+            "P&L %": "{:.2f}%"
+        }))
+
+        # ==============================
+        # PIE CHART
+        # ==============================
+        st.subheader("📊 Allocation")
+
+        st.bar_chart(df.set_index("Stock")["Current Value"])
+
+        # ==============================
+        # PERFORMANCE
+        # ==============================
+        st.subheader("📈 Portfolio Curve")
+
+        portfolio_returns = returns.dot(weights)
+        cumulative = (1 + portfolio_returns).cumprod()
+
+        st.line_chart(cumulative)
 
         # OPTIMIZATION
         def neg_sharpe(w):
