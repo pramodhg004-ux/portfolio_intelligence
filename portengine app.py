@@ -7,7 +7,7 @@ from supabase import create_client
 import io
 
 # ==============================
-# 🔑 SUPABASE CONFIG
+# SUPABASE CONFIG
 # ==============================
 SUPABASE_URL = "https://bveslnslwdttqzxqmrth.supabase.co"
 SUPABASE_KEY = "sb_publishable_avmvZzge1AZHSRcTXF4pfg_019rj-rC"
@@ -32,13 +32,16 @@ if st.session_state.user is None:
     st.stop()
 
 # ==============================
-# MAIN APP
+# MAIN UI
 # ==============================
-st.title(f"🚀 Portfolio Intelligence — {st.session_state.user}")
+st.title(f"🚀 Portfolio Intelligence Pro — {st.session_state.user}")
 
 stocks_input = st.text_area("Stocks (comma separated)", "AAPL,MSFT,GOOGL")
 investment = st.number_input("Investment ₹", value=100000)
 
+# ==============================
+# ANALYZE
+# ==============================
 if st.button("Analyze Portfolio"):
 
     stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
@@ -59,6 +62,9 @@ if st.button("Analyze Portfolio"):
         st.error("No valid data")
         st.stop()
 
+    # ==============================
+    # OPTIMIZATION
+    # ==============================
     def neg_sharpe(w):
         r = np.sum(returns.mean() * w) * 252
         v = np.sqrt(np.dot(w.T, np.dot(returns.cov() * 252, w)))
@@ -76,6 +82,9 @@ if st.button("Analyze Portfolio"):
 
     weights = res.x
 
+    # ==============================
+    # METRICS
+    # ==============================
     port_return = np.sum(returns.mean() * weights) * 252
     port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
     sharpe = port_return / port_vol if port_vol != 0 else 0
@@ -83,7 +92,6 @@ if st.button("Analyze Portfolio"):
     cumulative = (1 + returns.dot(weights)).cumprod()
     drawdown = (cumulative / cumulative.cummax() - 1).min()
 
-    # METRICS
     st.subheader("📊 Portfolio Metrics")
     c1, c2, c3, c4 = st.columns(4)
 
@@ -92,81 +100,59 @@ if st.button("Analyze Portfolio"):
     c3.metric("Sharpe", f"{sharpe:.2f}")
     c4.metric("Max Drawdown", f"{drawdown*100:.2f}%")
 
-    # RECOMMENDATION
-    st.subheader("📌 Recommendation")
+    # ==============================
+    # ADVANCED ALLOCATION
+    # ==============================
+    latest_prices = data.iloc[-1]
+    buy_prices = data.iloc[0]
 
-    if sharpe > 1:
-        st.success("Strong portfolio")
-    elif sharpe > 0.5:
-        st.warning("Average portfolio")
-    else:
-        st.error("Weak portfolio")
+    alloc = pd.DataFrame({
+        "Stock": returns.columns,
+        "Weight (%)": weights * 100
+    })
+
+    alloc["Investment ₹"] = alloc["Weight (%)"] / 100 * investment
+    alloc["Buy Price"] = alloc["Stock"].map(buy_prices)
+    alloc["Current Price"] = alloc["Stock"].map(latest_prices)
+
+    alloc["Quantity"] = alloc["Investment ₹"] / alloc["Buy Price"]
+    alloc["Current Value ₹"] = alloc["Quantity"] * alloc["Current Price"]
+
+    alloc["P&L ₹"] = alloc["Current Value ₹"] - alloc["Investment ₹"]
+    alloc["Return %"] = (alloc["P&L ₹"] / alloc["Investment ₹"]) * 100
+
+    alloc = alloc.sort_values(by="Weight (%)", ascending=False)
+
+    st.subheader("📊 Portfolio Breakdown")
+    st.dataframe(alloc)
 
     # ==============================
-# 📊 ADVANCED PORTFOLIO ANALYSIS
-# ==============================
-
-latest_prices = data.iloc[-1]
-
-alloc = pd.DataFrame({
-    "Stock": returns.columns,
-    "Weight (%)": weights * 100
-})
-
-alloc["Investment ₹"] = alloc["Weight (%)"] / 100 * investment
-alloc["Current Price"] = alloc["Stock"].map(latest_prices)
-
-# Assume buy price = first available price
-buy_prices = data.iloc[0]
-alloc["Buy Price"] = alloc["Stock"].map(buy_prices)
-
-alloc["Quantity"] = alloc["Investment ₹"] / alloc["Buy Price"]
-alloc["Current Value ₹"] = alloc["Quantity"] * alloc["Current Price"]
-
-alloc["P&L ₹"] = alloc["Current Value ₹"] - alloc["Investment ₹"]
-alloc["Return %"] = (alloc["P&L ₹"] / alloc["Investment ₹"]) * 100
-
-alloc = alloc.sort_values(by="Weight (%)", ascending=False)
-
-# ==============================
-# DISPLAY
-# ==============================
-st.subheader("📊 Advanced Portfolio Breakdown")
-st.dataframe(alloc)
-
-# ==============================
-# PORTFOLIO CHART
-# ==============================
-st.subheader("📈 Portfolio Performance")
-
-portfolio_series = (returns.dot(weights) + 1).cumprod()
-st.line_chart(portfolio_series)
-
-# ==============================
-# 📥 DOWNLOAD EXCEL (ADVANCED)
-# ==============================
-import io
-
-buffer = io.BytesIO()
-
-with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-    alloc.to_excel(writer, sheet_name='Portfolio', index=False)
-    portfolio_series.to_frame(name="Growth").to_excel(writer, sheet_name='Performance')
-
-buffer.seek(0)
-
-st.download_button(
-    label="📥 Download Advanced Portfolio Report",
-    data=buffer,
-    file_name="portfolio_report.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
-    # GROWTH
+    # GROWTH CHART
+    # ==============================
     st.subheader("📈 Portfolio Growth")
     st.line_chart(cumulative)
 
-    # SAVE
+    # ==============================
+    # DOWNLOAD REPORT
+    # ==============================
+    buffer = io.BytesIO()
+
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        alloc.to_excel(writer, sheet_name='Portfolio', index=False)
+        cumulative.to_frame(name="Growth").to_excel(writer, sheet_name='Performance')
+
+    buffer.seek(0)
+
+    st.download_button(
+        label="📥 Download Advanced Report",
+        data=buffer,
+        file_name="portfolio_report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # ==============================
+    # SAVE TO DATABASE
+    # ==============================
     if st.button("💾 Save Portfolio"):
         try:
             supabase.table("portfolios").insert({
@@ -174,12 +160,14 @@ st.download_button(
                 "stocks": stocks_input
             }).execute()
 
-            st.success("✅ Saved to Supabase!")
+            st.success("Saved successfully!")
 
         except Exception as e:
-            st.error(f"❌ Error: {e}")
+            st.error(e)
 
+# ==============================
 # LOAD SAVED
+# ==============================
 st.subheader("📁 Your Saved Portfolios")
 
 try:
@@ -195,4 +183,4 @@ try:
         st.info("No saved portfolios yet")
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(e)
