@@ -1,10 +1,14 @@
 import streamlit as st
 import pandas as pd
+import yfinance as yf
+import numpy as np
 
+# ==============================
+# PAGE CONFIG
+# ==============================
 st.set_page_config(page_title="Portfolio Intelligence", layout="wide")
 
 st.title("🚀 Portfolio Intelligence Dashboard")
-
 
 # ==============================
 # SIDEBAR INPUT
@@ -26,92 +30,89 @@ weights_input = st.sidebar.text_input(
 # ==============================
 if st.sidebar.button("Analyze Portfolio"):
 
-    stocks = [s.strip() for s in stocks_input.split(",")]
-    weights = np.array(list(map(float, weights_input.split(","))))
+    try:
+        # Clean inputs
+        stocks = [s.strip().upper() for s in stocks_input.split(",")]
+        weights = np.array(list(map(float, weights_input.split(","))))
 
-    data = yf.download(stocks, start="2020-01-01")["Close"]
-    returns = data.pct_change().dropna()
+        # Validate
+        if len(stocks) != len(weights):
+            st.error("❌ Number of stocks and weights must match")
+        elif abs(sum(weights) - 1) > 0.01:
+            st.warning("⚠️ Weights should sum close to 1 (100%)")
 
-    port_return = np.sum(returns.mean() * weights) * 252
-    port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
-    sharpe = port_return / port_vol
+        else:
+            # ==============================
+            # DOWNLOAD DATA
+            # ==============================
+            data = yf.download(stocks, start="2020-01-01")["Close"]
 
-    st.subheader("📊 Live Portfolio Metrics")
+            if data.isnull().all().all():
+                st.error("❌ Could not fetch data. Check stock symbols.")
+            else:
+                returns = data.pct_change().dropna()
 
-    col1, col2, col3 = st.columns(3)
+                # ==============================
+                # METRICS
+                # ==============================
+                port_return = np.sum(returns.mean() * weights) * 252
+                port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
+                sharpe = port_return / port_vol
 
-    col1.metric("Return", f"{port_return*100:.2f}%")
-    col2.metric("Volatility", f"{port_vol*100:.2f}%")
-    col3.metric("Sharpe", f"{sharpe:.2f}")
+                cumulative = (1 + returns.dot(weights)).cumprod()
+                drawdown = (cumulative / cumulative.cummax() - 1).min()
 
-    growth = (1 + returns.dot(weights)).cumprod()
+                # ==============================
+                # DISPLAY METRICS
+                # ==============================
+                st.subheader("📊 Live Portfolio Metrics")
 
-    st.subheader("📈 Portfolio Growth")
-    st.line_chart(growth)
+                col1, col2, col3, col4 = st.columns(4)
 
-# ==============================
-# ALLOCATION
-# ==============================
-st.subheader("📊 Portfolio Allocation")
-st.bar_chart(weights.set_index("Stock"))
+                col1.metric("Return", f"{port_return*100:.2f}%")
+                col2.metric("Volatility", f"{port_vol*100:.2f}%")
+                col3.metric("Sharpe", f"{sharpe:.2f}")
+                col4.metric("Max Drawdown", f"{drawdown*100:.2f}%")
 
-# ==============================
-# GROWTH
-# ==============================
-st.subheader("📈 Portfolio Growth")
-st.line_chart(growth.set_index("Date"))
+                # ==============================
+                # ALLOCATION
+                # ==============================
+                st.subheader("📊 Portfolio Allocation")
 
-# ==============================
-# SIGNALS
-# ==============================
-st.subheader("💡 Buy / Sell Signals")
-st.dataframe(signals)
-import yfinance as yf
-import numpy as np
-if st.sidebar.button("Analyze Portfolio"):
+                allocation_df = pd.DataFrame({
+                    "Stock": stocks,
+                    "Weight": weights
+                })
 
-    stocks = [s.strip() for s in stocks_input.split(",")]
-    weights = np.array(list(map(float, weights_input.split(","))))
+                st.bar_chart(allocation_df.set_index("Stock"))
 
-    data = yf.download(stocks, start="2020-01-01")["Close"]
+                # ==============================
+                # GROWTH
+                # ==============================
+                st.subheader("📈 Portfolio Growth")
 
-    returns = data.pct_change().dropna()
+                st.line_chart(cumulative)
 
-    port_return = np.sum(returns.mean() * weights) * 252
-    port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
-    sharpe = port_return / port_vol
+                # ==============================
+                # SIGNALS (SIMPLE LOGIC)
+                # ==============================
+                st.subheader("💡 Buy / Sell Signals")
 
-    st.subheader("📊 Live Portfolio Metrics")
+                signals = []
 
-    col1, col2, col3 = st.columns(3)
+                for stock in stocks:
+                    if returns[stock].mean() > 0:
+                        signals.append("BUY")
+                    else:
+                        signals.append("SELL")
 
-    col1.metric("Return", f"{port_return*100:.2f}%")
-    col2.metric("Volatility", f"{port_vol*100:.2f}%")
-    col3.metric("Sharpe", f"{sharpe:.2f}")
+                signal_df = pd.DataFrame({
+                    "Stock": stocks,
+                    "Weight": weights,
+                    "Signal": signals
+                })
 
-    growth = (1 + returns.dot(weights)).cumprod()
+                st.dataframe(signal_df)
 
-    st.subheader("📈 Portfolio Growth")
-    st.line_chart(growth)
-    st.sidebar.header("📥 Enter Your Portfolio")
-
-stocks_input = st.sidebar.text_input(
-    "Enter stocks (comma separated)",
-    "AAPL,MSFT,GOOGL"
-)
-
-weights_input = st.sidebar.text_input(
-    "Enter weights (comma separated)",
-    "0.3,0.4,0.3"
-)
-st.sidebar.header("📥 Enter Your Portfolio")
-
-stocks_input = st.sidebar.text_input(
-    "Enter stocks (comma separated)",
-    "AAPL,MSFT,GOOGL"
-)
-
-weights_input = st.sidebar.text_input(
-    "Enter weights (comma separated)",
-    "0.3,0.4,0.3"
-)
+    except Exception as e:
+        st.error(f"⚠️ Error: {e}")
