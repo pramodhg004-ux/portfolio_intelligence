@@ -12,48 +12,11 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ================= SESSION =================
-if "user" not in st.session_state:
-    st.session_state.user = None
+# ================= TEMP LOGIN (STABLE MODE) =================
+# 🔥 This prevents login issues
+user = "demo_user"
 
-# ================= AUTH PAGE =================
-if st.session_state.user is None:
-
-    st.title("🚀 Portfolio Intelligence Pro")
-    st.subheader("Track. Analyze. Grow your wealth.")
-
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
-
-    col1, col2 = st.columns(2)
-
-    if col1.button("Login"):
-        try:
-            supabase.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
-            st.session_state.user = email
-            st.rerun()
-        except:
-            st.error("Login failed")
-
-    if col2.button("Signup"):
-        try:
-            supabase.auth.sign_up({
-                "email": email,
-                "password": password
-            })
-            st.success("Signup successful")
-        except:
-            st.error("Signup failed")
-
-    st.stop()
-
-# ================= USER =================
-user = st.session_state.user
-
-# ================= SUBSCRIPTION =================
+# ================= CHECK PRO =================
 def is_pro_user():
     try:
         res = supabase.table("subscriptions") \
@@ -74,14 +37,11 @@ page = st.sidebar.radio(
     ["🏠 Dashboard", "📈 Analyze", "📁 Portfolios", "💳 Upgrade"]
 )
 
-if st.sidebar.button("Logout"):
-    st.session_state.user = None
-    st.rerun()
-
 # ================= DASHBOARD =================
 if page == "🏠 Dashboard":
 
-    st.title(f"👋 Welcome {user}")
+    st.title("🚀 Portfolio Intelligence Pro")
+    st.subheader("Track. Analyze. Grow your wealth.")
 
     try:
         res = supabase.table("portfolios") \
