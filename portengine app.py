@@ -45,7 +45,10 @@ if st.sidebar.button("Analyze Portfolio"):
             # ==============================
             # DOWNLOAD DATA
             # ==============================
-            data = yf.download(stocks, start="2020-01-01")["Close"]
+            data = yf.download(stocks, start="2020-01-01")
+
+if isinstance(data.columns, pd.MultiIndex):
+    data = data["Close"]
 
             if data.isnull().all().all():
                 st.error("❌ Could not fetch data. Check stock symbols.")
