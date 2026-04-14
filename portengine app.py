@@ -124,17 +124,37 @@ if page == "Terminal":
         st.divider()
         st.dataframe(df, use_container_width=True)
 
-# ================= ANALYZE =================
 elif page == "Analyze":
 
     st.title("📈 Portfolio Intelligence")
 
-    stocks_input = st.text_input("Stocks", "AAPL,MSFT,TSLA")
-    investment = st.number_input("Investment ₹", value=100000)
+    st.markdown("### Enter Stocks with Allocation %")
+    st.markdown("Example: AAPL:40, MSFT:30, TSLA:30")
+
+    stocks_input = st.text_input("Stocks + Allocation", "AAPL:40,MSFT:30,TSLA:30")
+    investment = st.number_input("Total Investment ₹", value=100000)
+
+    if "analysis_done" not in st.session_state:
+        st.session_state.analysis_done = False
 
     if st.button("Analyze"):
+        st.session_state.analysis_done = True
 
-        stocks = [s.strip().upper() for s in stocks_input.split(",")]
+        items = [s.strip() for s in stocks_input.split(",")]
+
+        stocks = []
+        allocation = {}
+
+        for item in items:
+            try:
+                stock, pct = item.split(":")
+                stock = stock.upper()
+                pct = float(pct)
+
+                stocks.append(stock)
+                allocation[stock] = pct
+            except:
+                continue
 
         price_data = {}
         valid = []
@@ -162,19 +182,31 @@ elif page == "Analyze":
 
         df = pd.DataFrame({"Stock": valid})
 
-        df["Invested"] = investment / len(valid)
+        df["Allocation %"] = df["Stock"].map(allocation)
+
+        df["Invested"] = (df["Allocation %"] / 100) * investment
+
         df["Buy"] = df["Stock"].map(buy)
         df["LTP"] = df["Stock"].map(latest)
 
         df["Qty"] = df["Invested"] / df["Buy"]
         df["Value"] = df["Qty"] * df["LTP"]
         df["P&L"] = df["Value"] - df["Invested"]
+        df["Return %"] = (df["P&L"] / df["Invested"]) * 100
 
+        st.session_state.result_df = df
+
+    # ===== SHOW RESULT (PERSISTENT) =====
+    if st.session_state.analysis_done:
+
+        df = st.session_state.result_df
+
+        total_invested = df["Invested"].sum()
         total_value = df["Value"].sum()
-        pnl = total_value - investment
+        pnl = total_value - total_invested
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Invested", f"₹{investment:,.0f}")
+        c1.metric("Invested", f"₹{total_invested:,.0f}")
         c2.metric("Value", f"₹{total_value:,.0f}")
         c3.metric("P&L", f"₹{pnl:,.0f}")
 
