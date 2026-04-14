@@ -191,6 +191,21 @@ if page == "📈 Analyze":
 
         st.subheader("📈 Portfolio Growth")
         st.line_chart(cumulative)
+        # ==============================
+# SAVE DAILY PERFORMANCE
+# ==============================
+try:
+    today_value = float(cumulative.iloc[-1] * investment)
+
+    supabase.table("portfolio_history").insert({
+        "username": st.session_state.user,
+        "portfolio_name": portfolio_name,
+        "date": pd.Timestamp.today().date().isoformat(),
+        "value": today_value
+    }).execute()
+
+except:
+    pass
 
         # DOWNLOAD
         buffer = io.BytesIO()
