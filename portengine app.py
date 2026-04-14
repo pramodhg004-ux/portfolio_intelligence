@@ -12,65 +12,57 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ================= LANDING =================
+# ================= AUTH =================
+st.sidebar.title("🔐 Account")
+
+auth_mode = st.sidebar.radio("Choose", ["Login", "Signup"])
+email = st.sidebar.text_input("Email")
+password = st.sidebar.text_input("Password", type="password")
+
 if "user" not in st.session_state:
     st.session_state.user = None
 
-if not st.session_state.user:
+# SIGNUP
+if auth_mode == "Signup":
+    if st.sidebar.button("Create Account"):
+        try:
+            supabase.auth.sign_up({"email": email, "password": password})
+            st.success("Signup successful. Please login.")
+        except:
+            st.error("Signup failed")
 
-    st.title("🚀 Portfolio Intelligence Pro")
-
-    st.subheader("Track. Analyze. Grow your wealth.")
-
-    st.markdown("""
-    ### Why this app?
-    - 📊 Real-time portfolio tracking  
-    - 📈 AI insights  
-    - 🏢 Sector analysis  
-    - 🔔 Alerts  
-
-    ### Pricing:
-    - Free → Basic tracking  
-    - PRO → ₹499/month  
-    """)
-
-    st.divider()
-
-    st.subheader("Login / Signup")
-
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
-
-    col1, col2 = st.columns(2)
-
-    if col1.button("Login"):
+# LOGIN (NO BYPASS)
+if auth_mode == "Login":
+    if st.sidebar.button("Login"):
         try:
             res = supabase.auth.sign_in_with_password({
                 "email": email,
                 "password": password
             })
-            st.session_state.user = email
-            st.rerun()
+
+            if res.user:
+                st.session_state.user = email
+                st.success("Logged in!")
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
+
         except:
             st.error("Login failed")
 
-    if col2.button("Signup"):
-        try:
-            supabase.auth.sign_up({
-                "email": email,
-                "password": password
-            })
-            st.success("Signup success")
-        except:
-            st.error("Signup failed")
+# LOGOUT
+if st.session_state.user:
+    if st.sidebar.button("Logout"):
+        st.session_state.user = None
+        st.rerun()
 
+if not st.session_state.user:
+    st.title("🔐 Login Required")
     st.stop()
 
-# ================= USER =================
-user = st.session_state.user
-
+# ================= SUBSCRIPTION =================
 sub = supabase.table("subscriptions").select("*") \
-    .eq("username", user).execute()
+    .eq("username", st.session_state.user).execute()
 
 is_pro = len(sub.data) > 0
 
@@ -80,26 +72,26 @@ page = st.sidebar.radio(
     ["🏠 Dashboard", "📈 Analyze", "📁 Portfolios", "💳 Upgrade"]
 )
 
-# LOGOUT
-if st.sidebar.button("Logout"):
-    st.session_state.user = None
-    st.rerun()
-
 # ================= DASHBOARD =================
 if page == "🏠 Dashboard":
 
-    st.title(f"Welcome {user}")
+    st.title(f"Welcome {st.session_state.user}")
 
     res = supabase.table("portfolios") \
         .select("*") \
-        .eq("username", user).execute()
+        .eq("username", st.session_state.user) \
+        .execute()
 
-    st.metric("Portfolios", len(res.data))
+    if not res.data:
+        st.info("No portfolios yet. Go to Analyze.")
+
+    else:
+        st.metric("Saved Portfolios", len(res.data))
 
 # ================= ANALYZE =================
 if page == "📈 Analyze":
 
-    st.title("📊 Holdings")
+    st.title("📊 Holdings Dashboard")
 
     stocks_input = st.text_area("Stocks", "AAPL,MSFT")
     investment = st.number_input("Investment ₹", value=100000)
@@ -128,16 +120,34 @@ if page == "📈 Analyze":
         df["Qty"] = df["Investment ₹"] / df["Avg Price"]
         df["Value"] = df["Qty"] * df["LTP"]
         df["P&L"] = df["Value"] - df["Investment ₹"]
+        df["Day %"] = ((df["LTP"] - df["Stock"].map(prev)) / df["Stock"].map(prev)) * 100
 
         total_value = df["Value"].sum()
+        pnl = total_value - investment
 
-        st.metric("Portfolio Value", f"₹{total_value:,.0f}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Invested", f"₹{investment:,.0f}")
+        c2.metric("Value", f"₹{total_value:,.0f}")
+        c3.metric("P&L", f"₹{pnl:,.0f}")
 
         st.dataframe(df)
 
+        st.bar_chart(df.set_index("Stock")["Value"])
+
+        # SAVE PORTFOLIO
+        name = st.text_input("Portfolio Name")
+
+        if st.button("Save Portfolio"):
+            supabase.table("portfolios").insert({
+                "username": st.session_state.user,
+                "portfolio_name": name,
+                "stocks": stocks_input
+            }).execute()
+            st.success("Saved")
+
         # PRO FEATURE
         if is_pro:
-            st.subheader("Sector Analysis")
+            st.subheader("Sector Allocation")
 
             sectors = {}
             for s in stocks:
@@ -150,39 +160,38 @@ if page == "📈 Analyze":
             st.bar_chart(df.groupby("Sector")["Value"].sum())
 
         else:
-            st.warning("Upgrade to PRO")
+            st.warning("Upgrade to PRO for sector analysis")
 
 # ================= PORTFOLIOS =================
 if page == "📁 Portfolios":
 
-    name = st.text_input("Portfolio Name")
-    stocks = st.text_area("Stocks")
-
-    if st.button("Save"):
-        supabase.table("portfolios").insert({
-            "username": user,
-            "portfolio_name": name,
-            "stocks": stocks
-        }).execute()
+    st.title("Your Portfolios")
 
     res = supabase.table("portfolios") \
         .select("*") \
-        .eq("username", user).execute()
+        .eq("username", st.session_state.user) \
+        .execute()
 
     for r in res.data:
-        st.write(r["portfolio_name"], "-", r["stocks"])
+        st.write(f"📌 {r['portfolio_name']} → {r['stocks']}")
 
 # ================= UPGRADE =================
 if page == "💳 Upgrade":
 
     st.title("Upgrade to PRO")
 
-    st.markdown("""
-    <a href="https://rzp.io/l/YOUR_LINK" target="_blank">
-        <button style="background:#3399cc;color:white;padding:10px;">
-        Pay ₹499
-        </button>
-    </a>
-    """, unsafe_allow_html=True)
+    if is_pro:
+        st.success("You are already PRO")
 
-    st.info("Payment auto-activates PRO (no button needed)")
+    else:
+        st.write("Unlock premium features:")
+        st.write("- Sector Analysis")
+        st.write("- Advanced Insights")
+
+        st.markdown("""
+        <a href="https://rzp.io/l/YOUR_LINK" target="_blank">
+            <button style="background:#3399cc;color:white;padding:10px;border:none;border-radius:5px;">
+            Pay ₹499
+            </button>
+        </a>
+        """, unsafe_allow_html=True)
