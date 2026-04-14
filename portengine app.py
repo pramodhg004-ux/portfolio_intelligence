@@ -15,7 +15,7 @@ supabase = create_client(
 )
 
 # ================= AUTO REFRESH =================
-st_autorefresh(interval=30000, key="live_refresh")
+st_autorefresh(interval=5000, key="live_refresh")  # faster refresh
 
 # ================= SESSION =================
 if "user" not in st.session_state:
@@ -52,9 +52,17 @@ if mode == "Login":
 
 if not st.session_state.user:
     st.title("🚀 Portfolio Terminal")
+    st.subheader("Track • Analyze • Grow")
     st.stop()
 
 user = st.session_state.user
+
+# ================= HELPERS =================
+def format_stock(symbol):
+    symbol = symbol.upper().strip()
+    if "." in symbol or "-" in symbol:
+        return symbol
+    return symbol + ".NS" if len(symbol) <= 6 else symbol
 
 # ================= NAV =================
 page = st.sidebar.radio("Navigate", [
@@ -66,29 +74,65 @@ if page == "Terminal":
 
     st.title("💻 Trading Terminal")
 
-    stocks = ["AAPL", "MSFT", "GOOGL"]
+    st.markdown("### 📌 Watchlist")
 
-    data = yf.download(stocks, period="1d", interval="1m", progress=False)
+    watchlist_input = st.text_input(
+        "Enter stocks (comma separated)",
+        "AAPL,MSFT,RELIANCE,TCS"
+    )
 
-    if data.empty:
-        st.warning("Live data not available")
+    raw_stocks = [s.strip() for s in watchlist_input.split(",")]
+    stocks = [format_stock(s) for s in raw_stocks]
+
+    valid_stocks = []
+    price_data = {}
+
+    for stock in stocks:
+        try:
+            temp = yf.download(stock, period="1d", interval="1m", progress=False)
+
+            if not temp.empty and "Close" in temp:
+                series = temp["Close"].dropna()
+                if len(series) > 2:
+                    price_data[stock] = series
+                    valid_stocks.append(stock)
+        except:
+            continue
+
+    if not price_data:
+        st.warning("No valid stocks")
     else:
-        if isinstance(data.columns, pd.MultiIndex):
-            data = data["Close"]
+        data = pd.concat(price_data.values(), axis=1)
+        data.columns = valid_stocks
+        data = data.dropna()
 
+        # ===== LIVE CHART =====
         st.line_chart(data)
+
+        # ===== LIVE TABLE =====
+        latest = data.iloc[-1]
+        prev = data.iloc[-2]
+
+        table = pd.DataFrame({
+            "Stock": latest.index,
+            "Price": latest.values,
+            "Change %": ((latest - prev) / prev) * 100
+        })
+
+        st.dataframe(table, use_container_width=True)
 
 # ================= ANALYZE =================
 elif page == "Analyze":
 
     st.title("📈 Portfolio Intelligence")
 
-    stocks_input = st.text_input("Stocks", "AAPL,MSFT,GOOGL")
+    stocks_input = st.text_input("Stocks", "AAPL,RELIANCE,TCS")
     investment = st.number_input("Investment ₹", value=100000)
 
     if st.button("Analyze"):
 
-        stocks = [s.strip().upper() for s in stocks_input.split(",")]
+        raw_stocks = [s.strip() for s in stocks_input.split(",")]
+        stocks = [format_stock(s) for s in raw_stocks]
 
         price_data = {}
         valid_stocks = []
@@ -103,30 +147,18 @@ elif page == "Analyze":
                     if len(series) > 2:
                         price_data[stock] = series
                         valid_stocks.append(stock)
-
             except:
                 continue
 
-        # ===== SAFETY CHECK =====
         if not price_data:
-            st.error("No valid stock data found")
+            st.error("No valid stocks found")
             st.stop()
 
-        # ===== SAFE DATAFRAME CREATION =====
-        try:
-            data = pd.concat(price_data.values(), axis=1)
-            data.columns = valid_stocks
-            data = data.dropna()
-        except:
-            st.error("Data processing failed")
-            st.stop()
-
-        if len(data) < 2:
-            st.error("Not enough data to analyze")
-            st.stop()
+        data = pd.concat(price_data.values(), axis=1)
+        data.columns = valid_stocks
+        data = data.dropna()
 
         latest = data.iloc[-1]
-        prev = data.iloc[-2]
         buy = data.iloc[0]
 
         df = pd.DataFrame({"Stock": valid_stocks})
@@ -168,7 +200,7 @@ elif page == "Portfolios":
     name = st.text_input("Portfolio Name")
     stocks = st.text_area("Stocks")
 
-    if st.button("Save"):
+    if st.button("Save Portfolio"):
         try:
             supabase.table("portfolios").insert({
                 "username": user,
@@ -178,3 +210,11 @@ elif page == "Portfolios":
             st.success("Saved")
         except Exception as e:
             st.error(e)
+
+    try:
+        res = supabase.table("portfolios").select("*").eq("username", user).execute()
+
+        for r in res.data:
+            st.markdown(f"**{r['portfolio_name']}** → {r['stocks']}")
+    except:
+        st.warning("No portfolios found")
