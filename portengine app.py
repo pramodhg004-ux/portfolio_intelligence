@@ -18,7 +18,7 @@ SUPABASE_KEY = "sb_publishable_avmvZzge1AZHSRcTXF4pfg_019rj-rC"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==============================
-# AUTH SYSTEM
+# AUTH
 # ==============================
 st.sidebar.title("🔐 Account")
 
@@ -42,6 +42,7 @@ if auth_mode == "Signup":
         except Exception as e:
             st.error(f"Signup failed: {e}")
 
+# LOGIN (bypass confirmation)
 if auth_mode == "Login":
     if st.sidebar.button("Login"):
         try:
@@ -50,20 +51,18 @@ if auth_mode == "Login":
                 "password": password
             })
 
-            st.session_state.user = email  # ✅ FORCE LOGIN
+            st.session_state.user = email
             st.success("Logged in!")
             st.rerun()
 
         except Exception as e:
-            # 🔥 BYPASS CONFIRMATION ERROR
             if "Email not confirmed" in str(e):
                 st.session_state.user = email
-                st.warning("Logged in without email verification")
+                st.warning("Logged in without verification")
                 st.rerun()
             else:
                 st.error(f"Login failed: {e}")
 
-# BLOCK APP IF NOT LOGGED IN
 if st.session_state.user is None:
     st.title("🔐 Please Login")
     st.stop()
@@ -75,7 +74,7 @@ st.sidebar.title("📊 Dashboard")
 
 page = st.sidebar.radio(
     "Navigate",
-    ["📈 Analyze", "📁 Saved", "⚙️ Settings"]
+    ["📈 Analyze", "📁 Saved Portfolios", "⚙️ Settings"]
 )
 
 # ==============================
@@ -85,16 +84,35 @@ if page == "📈 Analyze":
 
     st.title("🚀 Portfolio Intelligence Pro")
 
-    stocks_input = st.text_area("Stocks", "AAPL,MSFT,GOOGL")
+    # LOAD SAVED
+    load_option = st.checkbox("📂 Load saved portfolio")
+
+    stocks_input = "AAPL,MSFT,GOOGL"
+
+    if load_option:
+        res = supabase.table("portfolios") \
+            .select("*") \
+            .eq("username", st.session_state.user) \
+            .execute()
+
+        if res.data:
+            names = [r["portfolio_name"] for r in res.data]
+            selected = st.selectbox("Choose portfolio", names)
+            selected_data = next(r for r in res.data if r["portfolio_name"] == selected)
+            stocks_input = selected_data["stocks"]
+
+    stocks_input = st.text_area("Stocks", stocks_input)
+
+    portfolio_name = st.text_input("Portfolio Name")
     investment = st.number_input("Investment ₹", value=100000)
 
-    auto_refresh = st.checkbox("🔄 Auto Refresh (live)", value=False)
+    auto_refresh = st.checkbox("🔄 Auto Refresh", value=False)
 
     if st.button("Analyze Portfolio") or auto_refresh:
 
         stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
 
-        data = yf.download(stocks, period="1y", interval="1d", progress=False)
+        data = yf.download(stocks, period="1y", progress=False)
 
         if isinstance(data.columns, pd.MultiIndex):
             data = data["Close"]
@@ -138,8 +156,8 @@ if page == "📈 Analyze":
         c3.metric("Sharpe", f"{sharpe:.2f}")
         c4.metric("Drawdown", f"{drawdown*100:.2f}%")
 
-        # AI RECOMMENDATION
-        st.subheader("🤖 AI Recommendation")
+        # AI INSIGHTS
+        st.subheader("🤖 AI Insights")
 
         if sharpe > 1.2:
             st.success("Excellent portfolio")
@@ -151,7 +169,7 @@ if page == "📈 Analyze":
         if drawdown < -0.3:
             st.warning("High risk detected")
 
-        # ALLOCATION
+        # TABLE
         latest_prices = data.iloc[-1]
         buy_prices = data.iloc[0]
 
@@ -193,6 +211,7 @@ if page == "📈 Analyze":
             try:
                 supabase.table("portfolios").insert({
                     "username": st.session_state.user,
+                    "portfolio_name": portfolio_name,
                     "stocks": stocks_input
                 }).execute()
                 st.success("Saved successfully!")
@@ -207,21 +226,29 @@ if page == "📈 Analyze":
 # ==============================
 # SAVED PORTFOLIOS
 # ==============================
-if page == "📁 Saved":
+if page == "📁 Saved Portfolios":
 
-    st.title("📁 Saved Portfolios")
+    st.title("📁 Your Portfolios")
 
     try:
         res = supabase.table("portfolios") \
             .select("*") \
             .eq("username", st.session_state.user) \
+            .order("created_at", desc=True) \
             .execute()
 
         if res.data:
-            for r in res.data:
-                st.success(r["stocks"])
+            names = [r["portfolio_name"] for r in res.data]
+
+            selected = st.selectbox("Select Portfolio", names)
+
+            selected_data = next(r for r in res.data if r["portfolio_name"] == selected)
+
+            st.write("📌 Stocks:", selected_data["stocks"])
+            st.write("📅 Created:", selected_data["created_at"])
+
         else:
-            st.info("No saved portfolios")
+            st.info("No portfolios yet")
 
     except Exception as e:
         st.error(e)
