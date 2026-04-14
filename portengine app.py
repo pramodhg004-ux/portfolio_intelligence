@@ -5,94 +5,88 @@ import numpy as np
 from scipy.optimize import minimize
 from supabase import create_client
 import io
+import time
 
 # ==============================
-# 🎨 PAGE CONFIG
+# CONFIG
 # ==============================
 st.set_page_config(page_title="Portfolio Intelligence Pro", layout="wide")
 
-st.markdown("""
-<style>
-body {
-    background-color: #0e1117;
-}
-.metric-card {
-    background-color: #161b22;
-    padding: 15px;
-    border-radius: 10px;
-    text-align: center;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ==============================
-# 🔑 SUPABASE CONFIG
-# ==============================
 SUPABASE_URL = "https://bveslnslwdttqzxqmrth.supabase.co"
 SUPABASE_KEY = "sb_publishable_avmvZzge1AZHSRcTXF4pfg_019rj-rC"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==============================
-# 🔐 LOGIN
+# AUTH SYSTEM
 # ==============================
+st.sidebar.title("🔐 Account")
+
+auth_mode = st.sidebar.radio("Choose", ["Login", "Signup"])
+
+email = st.sidebar.text_input("Email")
+password = st.sidebar.text_input("Password", type="password")
+
 if "user" not in st.session_state:
     st.session_state.user = None
 
+if auth_mode == "Signup":
+    if st.sidebar.button("Create Account"):
+        try:
+            supabase.auth.sign_up({"email": email, "password": password})
+            st.success("Account created! Now login.")
+        except Exception as e:
+            st.error(e)
+
+if auth_mode == "Login":
+    if st.sidebar.button("Login"):
+        try:
+            res = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
+            st.session_state.user = res.user.email
+            st.success("Logged in!")
+        except Exception as e:
+            st.error("Login failed")
+
 if st.session_state.user is None:
-    st.title("🔐 Login")
-    username = st.text_input("Enter Username")
-
-    if st.button("Login"):
-        if username:
-            st.session_state.user = username
-            st.rerun()
-
+    st.title("🔐 Please Login")
     st.stop()
 
 # ==============================
-# 📂 SIDEBAR
+# SIDEBAR NAV
 # ==============================
 st.sidebar.title("📊 Dashboard")
 
 page = st.sidebar.radio(
     "Navigate",
-    ["📈 Analyze", "📁 Saved Portfolios", "⚙️ Settings"]
+    ["📈 Analyze", "📁 Saved", "⚙️ Settings"]
 )
 
 # ==============================
-# 📈 ANALYZE PAGE
+# ANALYZE PAGE
 # ==============================
 if page == "📈 Analyze":
 
-    st.title(f"🚀 Portfolio Intelligence Pro — {st.session_state.user}")
+    st.title(f"🚀 Portfolio Intelligence Pro")
 
-    stocks_input = st.text_area("Stocks (comma separated)", "AAPL,MSFT,GOOGL")
+    stocks_input = st.text_area("Stocks", "AAPL,MSFT,GOOGL")
     investment = st.number_input("Investment ₹", value=100000)
 
-    if st.button("Analyze Portfolio"):
+    auto_refresh = st.checkbox("🔄 Auto Refresh (live market)", value=False)
+
+    if st.button("Analyze Portfolio") or auto_refresh:
 
         stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
 
-        if len(stocks) == 0:
-            st.error("Enter valid stocks")
-            st.stop()
-
-        data = yf.download(stocks, start="2020-01-01", progress=False)
+        data = yf.download(stocks, period="1y", interval="1d", progress=False)
 
         if isinstance(data.columns, pd.MultiIndex):
             data = data["Close"]
 
-        data = data.dropna(axis=1, how="all").dropna()
         returns = data.pct_change().dropna()
 
-        if returns.empty:
-            st.error("No valid data")
-            st.stop()
-
-        # ==============================
-        # OPTIMIZATION
-        # ==============================
         def neg_sharpe(w):
             r = np.sum(returns.mean() * w) * 252
             v = np.sqrt(np.dot(w.T, np.dot(returns.cov() * 252, w)))
@@ -110,9 +104,6 @@ if page == "📈 Analyze":
 
         weights = res.x
 
-        # ==============================
-        # METRICS
-        # ==============================
         port_return = np.sum(returns.mean() * weights) * 252
         port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
         sharpe = port_return / port_vol if port_vol != 0 else 0
@@ -120,17 +111,30 @@ if page == "📈 Analyze":
         cumulative = (1 + returns.dot(weights)).cumprod()
         drawdown = (cumulative / cumulative.cummax() - 1).min()
 
-        st.subheader("📊 Key Metrics")
-
+        # KPI
         c1, c2, c3, c4 = st.columns(4)
-
-        c1.markdown(f"<div class='metric-card'><h3>Return</h3><h2>{port_return*100:.2f}%</h2></div>", unsafe_allow_html=True)
-        c2.markdown(f"<div class='metric-card'><h3>Volatility</h3><h2>{port_vol*100:.2f}%</h2></div>", unsafe_allow_html=True)
-        c3.markdown(f"<div class='metric-card'><h3>Sharpe</h3><h2>{sharpe:.2f}</h2></div>", unsafe_allow_html=True)
-        c4.markdown(f"<div class='metric-card'><h3>Drawdown</h3><h2>{drawdown*100:.2f}%</h2></div>", unsafe_allow_html=True)
+        c1.metric("Return", f"{port_return*100:.2f}%")
+        c2.metric("Volatility", f"{port_vol*100:.2f}%")
+        c3.metric("Sharpe", f"{sharpe:.2f}")
+        c4.metric("Drawdown", f"{drawdown*100:.2f}%")
 
         # ==============================
-        # ADVANCED TABLE
+        # AI RECOMMENDATION
+        # ==============================
+        st.subheader("🤖 AI Recommendation")
+
+        if sharpe > 1.2:
+            st.success("Excellent portfolio — maintain allocation")
+        elif sharpe > 0.7:
+            st.warning("Moderate — consider diversification")
+        else:
+            st.error("Poor performance — rebalance required")
+
+        if drawdown < -0.3:
+            st.warning("High drawdown — reduce risk exposure")
+
+        # ==============================
+        # ALLOCATION
         # ==============================
         latest_prices = data.iloc[-1]
         buy_prices = data.iloc[0]
@@ -145,85 +149,46 @@ if page == "📈 Analyze":
         alloc["Current Price"] = alloc["Stock"].map(latest_prices)
 
         alloc["Quantity"] = alloc["Investment ₹"] / alloc["Buy Price"]
-        alloc["Current Value ₹"] = alloc["Quantity"] * alloc["Current Price"]
+        alloc["Value ₹"] = alloc["Quantity"] * alloc["Current Price"]
+        alloc["P&L ₹"] = alloc["Value ₹"] - alloc["Investment ₹"]
 
-        alloc["P&L ₹"] = alloc["Current Value ₹"] - alloc["Investment ₹"]
-        alloc["Return %"] = (alloc["P&L ₹"] / alloc["Investment ₹"]) * 100
+        st.dataframe(alloc)
 
-        alloc = alloc.sort_values(by="Weight (%)", ascending=False)
-
-        # ==============================
-        # TABS UI
-        # ==============================
-        tab1, tab2, tab3 = st.tabs(["📊 Allocation", "📈 Performance", "📄 Details"])
-
-        with tab1:
-            st.bar_chart(alloc.set_index("Stock")["Weight (%)"])
-
-        with tab2:
-            st.line_chart(cumulative)
-
-        with tab3:
-            st.dataframe(alloc)
-
-        # ==============================
-        # DOWNLOAD
-        # ==============================
-        buffer = io.BytesIO()
-
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            alloc.to_excel(writer, sheet_name='Portfolio', index=False)
-            cumulative.to_frame(name="Growth").to_excel(writer, sheet_name='Performance')
-
-        buffer.seek(0)
-
-        st.download_button(
-            label="📥 Download Report",
-            data=buffer,
-            file_name="portfolio_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.line_chart(cumulative)
 
         # ==============================
         # SAVE
         # ==============================
         if st.button("💾 Save Portfolio"):
-            try:
-                supabase.table("portfolios").insert({
-                    "username": st.session_state.user,
-                    "stocks": stocks_input
-                }).execute()
+            supabase.table("portfolios").insert({
+                "username": st.session_state.user,
+                "stocks": stocks_input
+            }).execute()
+            st.success("Saved!")
 
-                st.success("Saved successfully!")
-
-            except Exception as e:
-                st.error(e)
-
-# ==============================
-# 📁 SAVED PORTFOLIOS
-# ==============================
-if page == "📁 Saved Portfolios":
-
-    st.title("📁 Your Saved Portfolios")
-
-    try:
-        response = supabase.table("portfolios") \
-            .select("*") \
-            .eq("username", st.session_state.user) \
-            .execute()
-
-        if response.data:
-            for row in response.data:
-                st.success(row["stocks"])
-        else:
-            st.info("No portfolios yet")
-
-    except Exception as e:
-        st.error(e)
+        # AUTO REFRESH
+        if auto_refresh:
+            time.sleep(10)
+            st.rerun()
 
 # ==============================
-# ⚙️ SETTINGS
+# SAVED
+# ==============================
+if page == "📁 Saved":
+
+    st.title("Saved Portfolios")
+
+    res = supabase.table("portfolios") \
+        .select("*") \
+        .eq("username", st.session_state.user) \
+        .execute()
+
+    for r in res.data:
+        st.write(r["stocks"])
+
+# ==============================
+# SETTINGS
 # ==============================
 if page == "⚙️ Settings":
-    st.title("⚙️ Settings")
-    st.write("Future features coming soon...")
+    st.title("Settings")
+    st.write("Coming soon...")
