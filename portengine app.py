@@ -114,6 +114,17 @@ if st.sidebar.button("Analyze Portfolio"):
     col3.metric("Sharpe", f"{sharpe:.2f}")
     col4.metric("Max Drawdown", f"{drawdown*100:.2f}%")
     col5.metric("Beta", f"{beta:.2f}")
+    # ==============================
+# RECOMMENDATION
+# ==============================
+st.subheader("📌 Recommendation")
+
+if sharpe > 1:
+    st.success("✅ Strong portfolio — hold or increase allocation")
+elif sharpe > 0.5:
+    st.warning("⚠️ Average performance — consider optimization")
+else:
+    st.error("❌ Weak portfolio — reallocation recommended")
 
     # ==============================
     # ALLOCATION (₹ + %)
