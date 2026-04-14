@@ -5,69 +5,57 @@ import numpy as np
 from scipy.optimize import minimize
 
 # ==============================
-# PAGE CONFIG
+# CONFIG
 # ==============================
 st.set_page_config(page_title="Portfolio Intelligence Pro", layout="wide")
-
 st.title("🚀 Portfolio Intelligence Pro")
+
+# ==============================
+# SESSION STORAGE
+# ==============================
+if "saved_portfolios" not in st.session_state:
+    st.session_state.saved_portfolios = []
 
 # ==============================
 # SIDEBAR INPUT
 # ==============================
 st.sidebar.header("📥 Portfolio Input")
 
-stocks_input = st.sidebar.text_area(
-    "Stocks (comma separated)",
-    "AAPL,MSFT,GOOGL"
-)
+stocks_input = st.sidebar.text_area("Stocks", "AAPL,MSFT,GOOGL")
+investment = st.sidebar.number_input("💰 Investment (₹)", value=100000)
+risk_free_rate = st.sidebar.slider("Risk-Free Rate (%)", 0.0, 10.0, 5.0) / 100
 
-investment = st.sidebar.number_input("💰 Total Investment (₹)", value=100000)
+benchmark_choice = st.sidebar.selectbox("Benchmark", ["^GSPC", "^NSEI"])
 
-risk_free_rate = st.sidebar.slider("📊 Risk-Free Rate (%)", 0.0, 10.0, 5.0) / 100
-
-benchmark_choice = st.sidebar.selectbox(
-    "📈 Benchmark",
-    ["^GSPC", "^NSEI"]
-)
+# PREMIUM TOGGLE
+st.sidebar.subheader("💎 Premium")
+premium = st.sidebar.checkbox("Unlock Pro Features")
 
 # ==============================
 # MAIN BUTTON
 # ==============================
 if st.sidebar.button("Analyze Portfolio"):
 
-    # --------------------------
-    # CLEAN INPUT
-    # --------------------------
     stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
 
     if len(stocks) == 0:
-        st.error("❌ Please enter at least one stock")
+        st.error("Enter stocks")
         st.stop()
 
-    # --------------------------
-    # DOWNLOAD DATA
-    # --------------------------
+    # DATA
     data = yf.download(stocks, start="2020-01-01", progress=False)
 
     if isinstance(data.columns, pd.MultiIndex):
         data = data["Close"]
 
-    data = data.dropna(axis=1, how="all")
-
-    if data.shape[1] == 0:
-        st.error("❌ Invalid stocks entered")
-        st.stop()
-
-    data = data.dropna()
+    data = data.dropna(axis=1, how="all").dropna()
     returns = data.pct_change().dropna()
 
     if returns.empty:
-        st.error("❌ Not enough data")
+        st.error("No data")
         st.stop()
 
-    # --------------------------
     # BENCHMARK
-    # --------------------------
     benchmark = yf.download(benchmark_choice, start="2020-01-01", progress=False)["Close"]
     benchmark_returns = benchmark.pct_change().dropna()
 
@@ -75,33 +63,23 @@ if st.sidebar.button("Analyze Portfolio"):
     returns = combined.iloc[:, :-1]
     benchmark_returns = combined.iloc[:, -1]
 
-    # --------------------------
-    # OPTIMIZATION (MAX SHARPE)
-    # --------------------------
+    # OPTIMIZATION
     def neg_sharpe(weights):
-        port_return = np.sum(returns.mean() * weights) * 252
-        port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
-        return -(port_return - risk_free_rate) / port_vol
+        r = np.sum(returns.mean() * weights) * 252
+        v = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
+        return -(r - risk_free_rate) / v
 
     num_assets = len(returns.columns)
-
-    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
     bounds = tuple((0, 1) for _ in range(num_assets))
+    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
     initial = np.ones(num_assets) / num_assets
 
-    result = minimize(
-        neg_sharpe,
-        initial,
-        method="SLSQP",
-        bounds=bounds,
-        constraints=constraints
-    )
+    result = minimize(neg_sharpe, initial, method="SLSQP",
+                      bounds=bounds, constraints=constraints)
 
     weights = result.x
 
-    # --------------------------
     # METRICS
-    # --------------------------
     port_return = np.sum(returns.mean() * weights) * 252
     port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
     sharpe = (port_return - risk_free_rate) / port_vol if port_vol != 0 else 0
@@ -113,65 +91,95 @@ if st.sidebar.button("Analyze Portfolio"):
     beta = covariance / np.var(benchmark_returns)
 
     # ==============================
-    # DISPLAY METRICS
+    # METRICS DISPLAY
     # ==============================
     st.subheader("📊 Portfolio Metrics")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    col1.metric("Return", f"{port_return*100:.2f}%")
-    col2.metric("Volatility", f"{port_vol*100:.2f}%")
-    col3.metric("Sharpe", f"{sharpe:.2f}")
-    col4.metric("Max Drawdown", f"{drawdown*100:.2f}%")
-    col5.metric("Beta", f"{beta:.2f}")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Return", f"{port_return*100:.2f}%")
+    c2.metric("Volatility", f"{port_vol*100:.2f}%")
+    c3.metric("Sharpe", f"{sharpe:.2f}")
+    c4.metric("Drawdown", f"{drawdown*100:.2f}%")
+    c5.metric("Beta", f"{beta:.2f}")
 
     # ==============================
-    # RECOMMENDATION (CORRECT POSITION)
+    # RECOMMENDATION
     # ==============================
     st.subheader("📌 Recommendation")
 
     if sharpe > 1:
-        st.success("✅ Strong portfolio — hold or increase allocation")
+        st.success("Strong portfolio — hold")
     elif sharpe > 0.5:
-        st.warning("⚠️ Average performance — consider optimization")
+        st.warning("Average — improve allocation")
     else:
-        st.error("❌ Weak portfolio — reallocation recommended")
+        st.error("Weak — rebalance needed")
 
     # ==============================
     # ALLOCATION
     # ==============================
     st.subheader("📊 Allocation")
 
-    allocation_df = pd.DataFrame({
+    alloc = pd.DataFrame({
         "Stock": returns.columns,
         "Weight (%)": weights * 100,
-        "Investment (₹)": weights * investment
+        "Investment": weights * investment
     }).sort_values(by="Weight (%)", ascending=False)
 
-    st.bar_chart(allocation_df.set_index("Stock")["Weight (%)"])
-    st.dataframe(allocation_df)
+    st.bar_chart(alloc.set_index("Stock")["Weight (%)"])
+    st.dataframe(alloc)
 
     # ==============================
-    # GROWTH VS BENCHMARK
+    # GROWTH
     # ==============================
-    st.subheader("📈 Portfolio vs Benchmark")
+    st.subheader("📈 Growth vs Benchmark")
 
-    portfolio_growth = (1 + returns.dot(weights)).cumprod()
-    benchmark_growth = (1 + benchmark_returns).cumprod()
-
-    growth_df = pd.DataFrame({
-        "Portfolio": portfolio_growth,
-        "Benchmark": benchmark_growth
+    growth = pd.DataFrame({
+        "Portfolio": (1 + returns.dot(weights)).cumprod(),
+        "Benchmark": (1 + benchmark_returns).cumprod()
     })
 
-    st.line_chart(growth_df)
+    st.line_chart(growth)
 
     # ==============================
-    # INSIGHTS
+    # SAVE PORTFOLIO
     # ==============================
-    st.subheader("🧠 Insights")
+    if st.button("💾 Save Portfolio"):
+        st.session_state.saved_portfolios.append(stocks)
+        st.success("Saved!")
 
-    best_stock = allocation_df.iloc[0]["Stock"]
+    # ==============================
+    # SAVED LIST
+    # ==============================
+    st.subheader("📁 Saved Portfolios")
 
-    st.success(f"Top allocation: {best_stock}")
-    st.info(f"Sharpe Ratio: {sharpe:.2f}")
+    for i, p in enumerate(st.session_state.saved_portfolios):
+        st.write(f"{i+1}: {p}")
+
+    # ==============================
+    # PRO FEATURES
+    # ==============================
+    if premium:
+
+        st.subheader("⚖️ Rebalancing")
+
+        eq = 1 / len(weights)
+        dev = np.abs(weights - eq)
+
+        if np.max(dev) > 0.1:
+            st.warning("Rebalance recommended")
+        else:
+            st.success("Balanced")
+
+        st.subheader("🤖 Smart Suggestions")
+
+        if beta > 1.2:
+            st.warning("High market risk")
+
+        if port_vol > 0.3:
+            st.warning("High volatility")
+
+        if len(stocks) < 4:
+            st.warning("Low diversification")
+
+    else:
+        st.info("Unlock premium for advanced insights")
