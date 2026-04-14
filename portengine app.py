@@ -24,58 +24,54 @@ stocks_input = st.sidebar.text_area(
 st.sidebar.caption("💡 Example: AAPL, MSFT, GOOGL")
 
 # ==============================
-# BUTTON ACTION
+# MAIN LOGIC
 # ==============================
 if st.sidebar.button("Analyze Portfolio"):
 
-    stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip() != ""]
+    # --------------------------
+    # CLEAN INPUT
+    # --------------------------
+    stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
 
     if len(stocks) == 0:
         st.error("❌ Please enter at least one stock")
         st.stop()
 
-    # ==============================
+    # --------------------------
     # DOWNLOAD DATA
-    # ==============================
-    data = yf.download(stocks, start="2020-01-01")
+    # --------------------------
+    data = yf.download(stocks, start="2020-01-01", progress=False)
 
-# Fix multi-stock structure
-if isinstance(data.columns, pd.MultiIndex):
-    data = data["Close"]
+    # Handle multi-index (multiple stocks)
+    if isinstance(data.columns, pd.MultiIndex):
+        data = data["Close"]
 
-# Drop stocks with no data
-data = data.dropna(axis=1, how="all")
+    # Remove invalid stocks
+    data = data.dropna(axis=1, how="all")
 
-# If nothing left
-if data.shape[1] == 0:
-    st.error("❌ No valid stock data found")
-    st.stop()
+    if data.shape[1] == 0:
+        st.error("❌ No valid stock data found")
+        st.stop()
 
-# Align data (important!)
-data = data.dropna()
+    # Align dates properly
+    data = data.dropna()
 
-returns = data.pct_change().dropna()
+    returns = data.pct_change().dropna()
 
-# Final safety check
-if returns.empty:
-    st.error("❌ Not enough data to calculate returns")
-    st.stop()
+    if returns.empty:
+        st.error("❌ Not enough data to calculate returns")
+        st.stop()
 
-    # ==============================
-    # OPTIMIZATION FUNCTION
-    # ==============================
+    # --------------------------
+    # PORTFOLIO OPTIMIZATION
+    # --------------------------
     def portfolio_volatility(weights):
         return np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
 
-    num_assets = len(stocks)
+    num_assets = len(data.columns)
 
-    constraints = ({
-        "type": "eq",
-        "fun": lambda x: np.sum(x) - 1
-    })
-
+    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
     bounds = tuple((0, 1) for _ in range(num_assets))
-
     initial_weights = np.ones(num_assets) / num_assets
 
     result = minimize(
@@ -88,19 +84,19 @@ if returns.empty:
 
     weights = result.x
 
-    # ==============================
+    # --------------------------
     # METRICS
-    # ==============================
+    # --------------------------
     port_return = np.sum(returns.mean() * weights) * 252
     port_vol = portfolio_volatility(weights)
-    sharpe = port_return / port_vol
+    sharpe = port_return / port_vol if port_vol != 0 else 0
 
     cumulative = (1 + returns.dot(weights)).cumprod()
     drawdown = (cumulative / cumulative.cummax() - 1).min()
 
-    # ==============================
+    # --------------------------
     # DISPLAY METRICS
-    # ==============================
+    # --------------------------
     st.subheader("📊 Optimized Portfolio Metrics")
 
     col1, col2, col3, col4 = st.columns(4)
@@ -110,23 +106,32 @@ if returns.empty:
     col3.metric("Sharpe", f"{sharpe:.2f}")
     col4.metric("Max Drawdown", f"{drawdown*100:.2f}%")
 
-    # ==============================
+    # --------------------------
     # ALLOCATION
-    # ==============================
+    # --------------------------
     st.subheader("📊 Optimized Allocation")
 
     allocation_df = pd.DataFrame({
-        "Stock": stocks,
+        "Stock": data.columns,
         "Weight": weights
-    })
+    }).sort_values(by="Weight", ascending=False)
 
     st.bar_chart(allocation_df.set_index("Stock"))
-
     st.dataframe(allocation_df)
 
-    # ==============================
+    # --------------------------
     # GROWTH
-    # ==============================
+    # --------------------------
     st.subheader("📈 Portfolio Growth")
 
     st.line_chart(cumulative)
+
+    # --------------------------
+    # EXTRA INSIGHTS
+    # --------------------------
+    st.subheader("📌 Insights")
+
+    best_stock = allocation_df.iloc[0]["Stock"]
+    st.success(f"Top allocation goes to: {best_stock}")
+
+    st.info(f"Portfolio Sharpe Ratio: {sharpe:.2f}")
