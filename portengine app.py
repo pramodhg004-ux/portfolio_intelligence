@@ -3,59 +3,50 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 from scipy.optimize import minimize
+from supabase import create_client
 
 # ==============================
-# SESSION SETUP
+# 🔑 SUPABASE CONFIG (PUT YOURS)
+# ==============================
+SUPABASE_URL = "PASTE_YOUR_URL_HERE"
+SUPABASE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY_HERE"
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ==============================
+# 🔐 LOGIN
 # ==============================
 if "user" not in st.session_state:
     st.session_state.user = None
 
-if "portfolios" not in st.session_state:
-    st.session_state.portfolios = {}
-
-# ==============================
-# LOGIN SYSTEM
-# ==============================
 if st.session_state.user is None:
-
     st.title("🔐 Login")
-
     username = st.text_input("Enter Username")
 
     if st.button("Login"):
         if username:
             st.session_state.user = username
-            if username not in st.session_state.portfolios:
-                st.session_state.portfolios[username] = []
-            st.success("Logged in!")
             st.rerun()
 
     st.stop()
 
 # ==============================
-# MAIN APP
+# 🚀 MAIN APP
 # ==============================
-st.title(f"🚀 Portfolio Intelligence Pro — {st.session_state.user}")
+st.title(f"🚀 Portfolio Intelligence — {st.session_state.user}")
 
-# SIDEBAR
-st.sidebar.header("📥 Portfolio Input")
-
-stocks_input = st.sidebar.text_area("Stocks", "AAPL,MSFT,GOOGL")
-investment = st.sidebar.number_input("💰 Investment (₹)", value=100000)
-risk_free_rate = st.sidebar.slider("Risk-Free Rate (%)", 0.0, 10.0, 5.0) / 100
-benchmark_choice = st.sidebar.selectbox("Benchmark", ["^GSPC", "^NSEI"])
-
-premium = st.sidebar.checkbox("💎 Premium Features")
+stocks_input = st.text_area("Stocks (comma separated)", "AAPL,MSFT,GOOGL")
+investment = st.number_input("Investment ₹", value=100000)
 
 # ==============================
 # ANALYZE
 # ==============================
-if st.sidebar.button("Analyze Portfolio"):
+if st.button("Analyze Portfolio"):
 
     stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
 
     if len(stocks) == 0:
-        st.error("Enter stocks")
+        st.error("Enter valid stocks")
         st.stop()
 
     # DATA
@@ -68,126 +59,94 @@ if st.sidebar.button("Analyze Portfolio"):
     returns = data.pct_change().dropna()
 
     if returns.empty:
-        st.error("No data")
+        st.error("No valid data")
         st.stop()
 
-    # BENCHMARK
-    benchmark = yf.download(benchmark_choice, start="2020-01-01", progress=False)["Close"]
-    benchmark_returns = benchmark.pct_change().dropna()
-
-    combined = pd.concat([returns, benchmark_returns], axis=1).dropna()
-    returns = combined.iloc[:, :-1]
-    benchmark_returns = combined.iloc[:, -1]
-
     # OPTIMIZATION
-    def neg_sharpe(weights):
-        r = np.sum(returns.mean() * weights) * 252
-        v = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
-        return -(r - risk_free_rate) / v
+    def neg_sharpe(w):
+        r = np.sum(returns.mean() * w) * 252
+        v = np.sqrt(np.dot(w.T, np.dot(returns.cov() * 252, w)))
+        return -r / v
 
-    num_assets = len(returns.columns)
-    bounds = tuple((0, 1) for _ in range(num_assets))
-    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
-    initial = np.ones(num_assets) / num_assets
+    n = len(returns.columns)
+    w0 = np.ones(n) / n
 
-    result = minimize(neg_sharpe, initial, method="SLSQP",
-                      bounds=bounds, constraints=constraints)
+    res = minimize(neg_sharpe, w0,
+                   bounds=[(0,1)]*n,
+                   constraints={"type":"eq","fun":lambda x:np.sum(x)-1})
 
-    weights = result.x
+    weights = res.x
 
     # METRICS
     port_return = np.sum(returns.mean() * weights) * 252
     port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
-    sharpe = (port_return - risk_free_rate) / port_vol if port_vol != 0 else 0
+    sharpe = port_return / port_vol if port_vol != 0 else 0
 
     cumulative = (1 + returns.dot(weights)).cumprod()
     drawdown = (cumulative / cumulative.cummax() - 1).min()
 
-    covariance = np.cov(returns.dot(weights), benchmark_returns)[0][1]
-    beta = covariance / np.var(benchmark_returns)
-
     # ==============================
     # DISPLAY
     # ==============================
-    st.subheader("📊 Metrics")
+    st.subheader("📊 Portfolio Metrics")
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Return", f"{port_return*100:.2f}%")
     c2.metric("Volatility", f"{port_vol*100:.2f}%")
     c3.metric("Sharpe", f"{sharpe:.2f}")
-    c4.metric("Drawdown", f"{drawdown*100:.2f}%")
-    c5.metric("Beta", f"{beta:.2f}")
+    c4.metric("Max Drawdown", f"{drawdown*100:.2f}%")
 
+    # ==============================
     # RECOMMENDATION
+    # ==============================
     st.subheader("📌 Recommendation")
 
     if sharpe > 1:
-        st.success("Strong portfolio")
+        st.success("Strong portfolio — good performance")
     elif sharpe > 0.5:
-        st.warning("Average portfolio")
+        st.warning("Average portfolio — can improve")
     else:
-        st.error("Weak portfolio")
+        st.error("Weak portfolio — rebalance needed")
 
+    # ==============================
     # ALLOCATION
-    st.subheader("📊 Allocation")
-
+    # ==============================
     alloc = pd.DataFrame({
         "Stock": returns.columns,
         "Weight (%)": weights * 100,
-        "Investment": weights * investment
+        "Investment ₹": weights * investment
     }).sort_values(by="Weight (%)", ascending=False)
 
+    st.subheader("📊 Allocation")
     st.bar_chart(alloc.set_index("Stock")["Weight (%)"])
     st.dataframe(alloc)
 
+    # ==============================
     # GROWTH
-    st.subheader("📈 Growth")
+    # ==============================
+    st.subheader("📈 Portfolio Growth")
+    st.line_chart(cumulative)
 
-    growth = pd.DataFrame({
-        "Portfolio": (1 + returns.dot(weights)).cumprod(),
-        "Benchmark": (1 + benchmark_returns).cumprod()
-    })
-
-    st.line_chart(growth)
-
-    # SAVE
+    # ==============================
+    # 💾 SAVE TO DATABASE
+    # ==============================
     if st.button("💾 Save Portfolio"):
-        st.session_state.portfolios[st.session_state.user].append(stocks)
-        st.success("Saved!")
+        supabase.table("portfolios").insert({
+            "username": st.session_state.user,
+            "stocks": stocks_input
+        }).execute()
+
+        st.success("Saved successfully!")
 
 # ==============================
-# SAVED PORTFOLIOS
+# 📁 LOAD SAVED PORTFOLIOS
 # ==============================
-st.subheader("📁 Saved Portfolios")
+st.subheader("📁 Your Saved Portfolios")
 
-for i, p in enumerate(st.session_state.portfolios[st.session_state.user]):
-    st.write(f"{i+1}: {p}")
+response = supabase.table("portfolios")\
+    .select("*")\
+    .eq("username", st.session_state.user)\
+    .execute()
 
-# ==============================
-# PREMIUM FEATURES
-# ==============================
-if premium:
-    st.subheader("⚖️ Rebalancing")
-
-    if 'weights' in locals():
-        eq = 1 / len(weights)
-        dev = np.abs(weights - eq)
-
-        if np.max(dev) > 0.1:
-            st.warning("Rebalance needed")
-        else:
-            st.success("Balanced")
-
-    st.subheader("🤖 Smart Suggestions")
-
-    if 'beta' in locals():
-        if beta > 1.2:
-            st.warning("High risk")
-
-        if port_vol > 0.3:
-            st.warning("High volatility")
-
-        if len(stocks) < 4:
-            st.warning("Low diversification")
-else:
-    st.info("Unlock premium features")
+for row in response.data:
+    st.write(f"• {row['stocks']}")
