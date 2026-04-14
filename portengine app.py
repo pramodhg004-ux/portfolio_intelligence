@@ -120,6 +120,21 @@ if st.button("Analyze Portfolio"):
     st.subheader("📊 Allocation")
     st.bar_chart(alloc.set_index("Stock")["Weight (%)"])
     st.dataframe(alloc)
+    # ==============================
+# 📥 DOWNLOAD PORTFOLIO
+# ==============================
+import io
+
+buffer = io.BytesIO()
+alloc.to_excel(buffer, index=False)
+buffer.seek(0)
+
+st.download_button(
+    label="📥 Download Portfolio (Excel)",
+    data=buffer,
+    file_name="portfolio.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
     # ==============================
     # GROWTH
