@@ -5,34 +5,50 @@ import numpy as np
 from scipy.optimize import minimize
 
 # ==============================
-# CONFIG
+# SESSION SETUP
 # ==============================
-st.set_page_config(page_title="Portfolio Intelligence Pro", layout="wide")
-st.title("🚀 Portfolio Intelligence Pro")
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if "portfolios" not in st.session_state:
+    st.session_state.portfolios = {}
 
 # ==============================
-# SESSION STORAGE
+# LOGIN SYSTEM
 # ==============================
-if "saved_portfolios" not in st.session_state:
-    st.session_state.saved_portfolios = []
+if st.session_state.user is None:
+
+    st.title("🔐 Login")
+
+    username = st.text_input("Enter Username")
+
+    if st.button("Login"):
+        if username:
+            st.session_state.user = username
+            if username not in st.session_state.portfolios:
+                st.session_state.portfolios[username] = []
+            st.success("Logged in!")
+            st.rerun()
+
+    st.stop()
 
 # ==============================
-# SIDEBAR INPUT
+# MAIN APP
 # ==============================
+st.title(f"🚀 Portfolio Intelligence Pro — {st.session_state.user}")
+
+# SIDEBAR
 st.sidebar.header("📥 Portfolio Input")
 
 stocks_input = st.sidebar.text_area("Stocks", "AAPL,MSFT,GOOGL")
 investment = st.sidebar.number_input("💰 Investment (₹)", value=100000)
 risk_free_rate = st.sidebar.slider("Risk-Free Rate (%)", 0.0, 10.0, 5.0) / 100
-
 benchmark_choice = st.sidebar.selectbox("Benchmark", ["^GSPC", "^NSEI"])
 
-# PREMIUM TOGGLE
-st.sidebar.subheader("💎 Premium")
-premium = st.sidebar.checkbox("Unlock Pro Features")
+premium = st.sidebar.checkbox("💎 Premium Features")
 
 # ==============================
-# MAIN BUTTON
+# ANALYZE
 # ==============================
 if st.sidebar.button("Analyze Portfolio"):
 
@@ -91,9 +107,9 @@ if st.sidebar.button("Analyze Portfolio"):
     beta = covariance / np.var(benchmark_returns)
 
     # ==============================
-    # METRICS DISPLAY
+    # DISPLAY
     # ==============================
-    st.subheader("📊 Portfolio Metrics")
+    st.subheader("📊 Metrics")
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Return", f"{port_return*100:.2f}%")
@@ -102,21 +118,17 @@ if st.sidebar.button("Analyze Portfolio"):
     c4.metric("Drawdown", f"{drawdown*100:.2f}%")
     c5.metric("Beta", f"{beta:.2f}")
 
-    # ==============================
     # RECOMMENDATION
-    # ==============================
     st.subheader("📌 Recommendation")
 
     if sharpe > 1:
-        st.success("Strong portfolio — hold")
+        st.success("Strong portfolio")
     elif sharpe > 0.5:
-        st.warning("Average — improve allocation")
+        st.warning("Average portfolio")
     else:
-        st.error("Weak — rebalance needed")
+        st.error("Weak portfolio")
 
-    # ==============================
     # ALLOCATION
-    # ==============================
     st.subheader("📊 Allocation")
 
     alloc = pd.DataFrame({
@@ -128,10 +140,8 @@ if st.sidebar.button("Analyze Portfolio"):
     st.bar_chart(alloc.set_index("Stock")["Weight (%)"])
     st.dataframe(alloc)
 
-    # ==============================
     # GROWTH
-    # ==============================
-    st.subheader("📈 Growth vs Benchmark")
+    st.subheader("📈 Growth")
 
     growth = pd.DataFrame({
         "Portfolio": (1 + returns.dot(weights)).cumprod(),
@@ -140,46 +150,44 @@ if st.sidebar.button("Analyze Portfolio"):
 
     st.line_chart(growth)
 
-    # ==============================
-    # SAVE PORTFOLIO
-    # ==============================
+    # SAVE
     if st.button("💾 Save Portfolio"):
-        st.session_state.saved_portfolios.append(stocks)
+        st.session_state.portfolios[st.session_state.user].append(stocks)
         st.success("Saved!")
 
-    # ==============================
-    # SAVED LIST
-    # ==============================
-    st.subheader("📁 Saved Portfolios")
+# ==============================
+# SAVED PORTFOLIOS
+# ==============================
+st.subheader("📁 Saved Portfolios")
 
-    for i, p in enumerate(st.session_state.saved_portfolios):
-        st.write(f"{i+1}: {p}")
+for i, p in enumerate(st.session_state.portfolios[st.session_state.user]):
+    st.write(f"{i+1}: {p}")
 
-    # ==============================
-    # PRO FEATURES
-    # ==============================
-    if premium:
+# ==============================
+# PREMIUM FEATURES
+# ==============================
+if premium:
+    st.subheader("⚖️ Rebalancing")
 
-        st.subheader("⚖️ Rebalancing")
-
+    if 'weights' in locals():
         eq = 1 / len(weights)
         dev = np.abs(weights - eq)
 
         if np.max(dev) > 0.1:
-            st.warning("Rebalance recommended")
+            st.warning("Rebalance needed")
         else:
             st.success("Balanced")
 
-        st.subheader("🤖 Smart Suggestions")
+    st.subheader("🤖 Smart Suggestions")
 
+    if 'beta' in locals():
         if beta > 1.2:
-            st.warning("High market risk")
+            st.warning("High risk")
 
         if port_vol > 0.3:
             st.warning("High volatility")
 
         if len(stocks) < 4:
             st.warning("Low diversification")
-
-    else:
-        st.info("Unlock premium for advanced insights")
+else:
+    st.info("Unlock premium features")
