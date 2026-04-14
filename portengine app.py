@@ -2,10 +2,8 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
-from scipy.optimize import minimize
 from supabase import create_client
 import io
-import time
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Portfolio Intelligence Pro", layout="wide")
@@ -49,10 +47,12 @@ if not st.session_state.user:
     st.stop()
 
 # ================= SUBSCRIPTION =================
-sub = supabase.table("subscriptions").select("*") \
-    .eq("username", st.session_state.user).execute()
-
-is_pro = len(sub.data) > 0
+try:
+    sub = supabase.table("subscriptions").select("*") \
+        .eq("username", st.session_state.user).execute()
+    is_pro = len(sub.data) > 0
+except:
+    is_pro = False
 
 # ================= NAV =================
 page = st.sidebar.radio(
@@ -65,32 +65,25 @@ if page == "🏠 Dashboard":
 
     st.title("🏠 Portfolio Dashboard")
 
-    res = supabase.table("portfolios") \
-        .select("*") \
-        .eq("username", st.session_state.user) \
-        .execute()
+    try:
+        res = supabase.table("portfolios") \
+            .select("*") \
+            .eq("username", st.session_state.user) \
+            .execute()
 
-    st.metric("Saved Portfolios", len(res.data))
-
-    history = supabase.table("portfolio_history") \
-        .select("*") \
-        .eq("username", st.session_state.user) \
-        .execute()
-
-    if history.data:
-        df = pd.DataFrame(history.data)
-        df["date"] = pd.to_datetime(df["date"])
-        st.line_chart(df.set_index("date")["value"])
+        st.metric("Saved Portfolios", len(res.data))
+    except:
+        st.warning("Database issue")
 
 # ================= ANALYZE =================
-if page == "📈 Analyze":
+elif page == "📈 Analyze":
 
     st.title("📊 Holdings")
 
     stocks_input = st.text_area("Stocks", "AAPL,MSFT")
     investment = st.number_input("Investment ₹", value=100000)
 
-    if st.button("Analyze"):
+    if st.button("Analyze", key="analyze_btn"):
 
         stocks = [s.strip().upper() for s in stocks_input.split(",") if s.strip()]
         data = yf.download(stocks, period="6mo", progress=False)
@@ -99,9 +92,6 @@ if page == "📈 Analyze":
             data = data["Close"]
 
         data = data.dropna()
-        returns = data.pct_change().dropna()
-
-        weights = np.ones(len(stocks)) / len(stocks)
 
         latest = data.iloc[-1]
         prev = data.iloc[-2]
@@ -127,20 +117,21 @@ if page == "📈 Analyze":
         c3.metric("P&L", f"₹{pnl:,.0f}")
 
         st.dataframe(df)
-
         st.bar_chart(df.set_index("Stock")["Value"])
 
         # SAVE HISTORY
-        supabase.table("portfolio_history").insert({
-            "username": st.session_state.user,
-            "portfolio_name": "default",
-            "date": pd.Timestamp.today().date().isoformat(),
-            "value": float(total_value)
-        }).execute()
+        try:
+            supabase.table("portfolio_history").insert({
+                "username": st.session_state.user,
+                "portfolio_name": "default",
+                "date": pd.Timestamp.today().date().isoformat(),
+                "value": float(total_value)
+            }).execute()
+        except:
+            pass
 
         # PRO FEATURES
         if is_pro:
-
             st.subheader("🏢 Sector Allocation")
 
             sectors = {}
@@ -152,36 +143,41 @@ if page == "📈 Analyze":
 
             df["Sector"] = df["Stock"].map(sectors)
             st.bar_chart(df.groupby("Sector")["Value"].sum())
-
         else:
             st.info("Upgrade to PRO for sector analysis")
 
 # ================= PORTFOLIOS =================
-if page == "📁 Portfolios":
+elif page == "📁 Portfolios":
 
     st.title("📁 Your Portfolios")
 
     name = st.text_input("Portfolio Name")
     stocks = st.text_area("Stocks")
 
-    if st.button("Save"):
-        supabase.table("portfolios").insert({
-            "username": st.session_state.user,
-            "portfolio_name": name,
-            "stocks": stocks
-        }).execute()
-        st.success("Saved")
+    if st.button("Save Portfolio", key="save_portfolio"):
+        try:
+            supabase.table("portfolios").insert({
+                "username": st.session_state.user,
+                "portfolio_name": name,
+                "stocks": stocks
+            }).execute()
+            st.success("Saved")
+        except Exception as e:
+            st.error(f"Error: {e}")
 
-    res = supabase.table("portfolios") \
-        .select("*") \
-        .eq("username", st.session_state.user) \
-        .execute()
+    try:
+        res = supabase.table("portfolios") \
+            .select("*") \
+            .eq("username", st.session_state.user) \
+            .execute()
 
-    for r in res.data:
-        st.write(r["portfolio_name"], "-", r["stocks"])
+        for r in res.data:
+            st.write(f"📌 {r['portfolio_name']} → {r['stocks']}")
+    except:
+        st.warning("Unable to fetch portfolios")
 
 # ================= UPGRADE =================
-if page == "💳 Upgrade":
+elif page == "💳 Upgrade":
 
     st.title("💳 Go PRO")
 
@@ -191,13 +187,13 @@ if page == "💳 Upgrade":
         st.write("Unlock premium features:")
         st.write("- Sector Analysis")
         st.write("- Advanced analytics")
-if st.button("Save"):
-    try:
-        supabase.table("portfolios").insert({
-            "username": st.session_state.user,
-            "portfolio_name": name,
-            "stocks": stocks
-        }).execute()
-        st.success("Saved")
-    except Exception as e:
-        st.error(f"Error: {e}")
+
+        if st.button("Upgrade Now", key="upgrade_btn"):
+            try:
+                supabase.table("subscriptions").insert({
+                    "username": st.session_state.user,
+                    "plan": "pro"
+                }).execute()
+                st.success("Upgraded!")
+            except:
+                st.error("Upgrade failed")
