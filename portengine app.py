@@ -30,14 +30,19 @@ password = st.sidebar.text_input("Password", type="password")
 if "user" not in st.session_state:
     st.session_state.user = None
 
+# SIGNUP
 if auth_mode == "Signup":
     if st.sidebar.button("Create Account"):
         try:
-            supabase.auth.sign_up({"email": email, "password": password})
-            st.success("Account created! Now login.")
+            supabase.auth.sign_up({
+                "email": email,
+                "password": password
+            })
+            st.success("Signup successful! Now login.")
         except Exception as e:
-            st.error(e)
+            st.error(f"Signup failed: {e}")
 
+# LOGIN
 if auth_mode == "Login":
     if st.sidebar.button("Login"):
         try:
@@ -45,11 +50,18 @@ if auth_mode == "Login":
                 "email": email,
                 "password": password
             })
-            st.session_state.user = res.user.email
-            st.success("Logged in!")
-        except Exception as e:
-            st.error("Login failed")
 
+            if res.user:
+                st.session_state.user = res.user.email
+                st.success("Logged in!")
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
+
+        except Exception as e:
+            st.error(f"Login failed: {e}")
+
+# BLOCK APP IF NOT LOGGED IN
 if st.session_state.user is None:
     st.title("🔐 Please Login")
     st.stop()
@@ -69,12 +81,12 @@ page = st.sidebar.radio(
 # ==============================
 if page == "📈 Analyze":
 
-    st.title(f"🚀 Portfolio Intelligence Pro")
+    st.title("🚀 Portfolio Intelligence Pro")
 
     stocks_input = st.text_area("Stocks", "AAPL,MSFT,GOOGL")
     investment = st.number_input("Investment ₹", value=100000)
 
-    auto_refresh = st.checkbox("🔄 Auto Refresh (live market)", value=False)
+    auto_refresh = st.checkbox("🔄 Auto Refresh (live)", value=False)
 
     if st.button("Analyze Portfolio") or auto_refresh:
 
@@ -85,8 +97,14 @@ if page == "📈 Analyze":
         if isinstance(data.columns, pd.MultiIndex):
             data = data["Close"]
 
+        data = data.dropna()
         returns = data.pct_change().dropna()
 
+        if returns.empty:
+            st.error("No data available")
+            st.stop()
+
+        # OPTIMIZATION
         def neg_sharpe(w):
             r = np.sum(returns.mean() * w) * 252
             v = np.sqrt(np.dot(w.T, np.dot(returns.cov() * 252, w)))
@@ -111,31 +129,27 @@ if page == "📈 Analyze":
         cumulative = (1 + returns.dot(weights)).cumprod()
         drawdown = (cumulative / cumulative.cummax() - 1).min()
 
-        # KPI
+        # METRICS
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Return", f"{port_return*100:.2f}%")
         c2.metric("Volatility", f"{port_vol*100:.2f}%")
         c3.metric("Sharpe", f"{sharpe:.2f}")
         c4.metric("Drawdown", f"{drawdown*100:.2f}%")
 
-        # ==============================
         # AI RECOMMENDATION
-        # ==============================
         st.subheader("🤖 AI Recommendation")
 
         if sharpe > 1.2:
-            st.success("Excellent portfolio — maintain allocation")
+            st.success("Excellent portfolio")
         elif sharpe > 0.7:
-            st.warning("Moderate — consider diversification")
+            st.warning("Moderate performance")
         else:
-            st.error("Poor performance — rebalance required")
+            st.error("Poor portfolio")
 
         if drawdown < -0.3:
-            st.warning("High drawdown — reduce risk exposure")
+            st.warning("High risk detected")
 
-        # ==============================
         # ALLOCATION
-        # ==============================
         latest_prices = data.iloc[-1]
         buy_prices = data.iloc[0]
 
@@ -152,19 +166,36 @@ if page == "📈 Analyze":
         alloc["Value ₹"] = alloc["Quantity"] * alloc["Current Price"]
         alloc["P&L ₹"] = alloc["Value ₹"] - alloc["Investment ₹"]
 
+        st.subheader("📊 Portfolio Breakdown")
         st.dataframe(alloc)
 
+        st.subheader("📈 Portfolio Growth")
         st.line_chart(cumulative)
 
-        # ==============================
+        # DOWNLOAD
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            alloc.to_excel(writer, sheet_name='Portfolio', index=False)
+            cumulative.to_frame(name="Growth").to_excel(writer, sheet_name='Performance')
+
+        buffer.seek(0)
+
+        st.download_button(
+            label="📥 Download Report",
+            data=buffer,
+            file_name="portfolio_report.xlsx"
+        )
+
         # SAVE
-        # ==============================
         if st.button("💾 Save Portfolio"):
-            supabase.table("portfolios").insert({
-                "username": st.session_state.user,
-                "stocks": stocks_input
-            }).execute()
-            st.success("Saved!")
+            try:
+                supabase.table("portfolios").insert({
+                    "username": st.session_state.user,
+                    "stocks": stocks_input
+                }).execute()
+                st.success("Saved successfully!")
+            except Exception as e:
+                st.error(e)
 
         # AUTO REFRESH
         if auto_refresh:
@@ -172,23 +203,30 @@ if page == "📈 Analyze":
             st.rerun()
 
 # ==============================
-# SAVED
+# SAVED PORTFOLIOS
 # ==============================
 if page == "📁 Saved":
 
-    st.title("Saved Portfolios")
+    st.title("📁 Saved Portfolios")
 
-    res = supabase.table("portfolios") \
-        .select("*") \
-        .eq("username", st.session_state.user) \
-        .execute()
+    try:
+        res = supabase.table("portfolios") \
+            .select("*") \
+            .eq("username", st.session_state.user) \
+            .execute()
 
-    for r in res.data:
-        st.write(r["stocks"])
+        if res.data:
+            for r in res.data:
+                st.success(r["stocks"])
+        else:
+            st.info("No saved portfolios")
+
+    except Exception as e:
+        st.error(e)
 
 # ==============================
 # SETTINGS
 # ==============================
 if page == "⚙️ Settings":
-    st.title("Settings")
+    st.title("⚙️ Settings")
     st.write("Coming soon...")
