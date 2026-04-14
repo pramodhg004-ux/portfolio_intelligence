@@ -6,7 +6,7 @@ from scipy.optimize import minimize
 from supabase import create_client
 
 # ==============================
-# 🔑 SUPABASE CONFIG (PUT YOURS)
+# 🔑 SUPABASE CONFIG
 # ==============================
 SUPABASE_URL = "https://bveslnslwdttqzxqmrth.supabase.co"
 SUPABASE_KEY = "sb_publishable_avmvZzge1AZHSRcTXF4pfg_019rj-rC"
@@ -49,7 +49,6 @@ if st.button("Analyze Portfolio"):
         st.error("Enter valid stocks")
         st.stop()
 
-    # DATA
     data = yf.download(stocks, start="2020-01-01", progress=False)
 
     if isinstance(data.columns, pd.MultiIndex):
@@ -62,7 +61,6 @@ if st.button("Analyze Portfolio"):
         st.error("No valid data")
         st.stop()
 
-    # OPTIMIZATION
     def neg_sharpe(w):
         r = np.sum(returns.mean() * w) * 252
         v = np.sqrt(np.dot(w.T, np.dot(returns.cov() * 252, w)))
@@ -71,13 +69,15 @@ if st.button("Analyze Portfolio"):
     n = len(returns.columns)
     w0 = np.ones(n) / n
 
-    res = minimize(neg_sharpe, w0,
-                   bounds=[(0,1)]*n,
-                   constraints={"type":"eq","fun":lambda x:np.sum(x)-1})
+    res = minimize(
+        neg_sharpe,
+        w0,
+        bounds=[(0, 1)] * n,
+        constraints={"type": "eq", "fun": lambda x: np.sum(x) - 1},
+    )
 
     weights = res.x
 
-    # METRICS
     port_return = np.sum(returns.mean() * weights) * 252
     port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
     sharpe = port_return / port_vol if port_vol != 0 else 0
@@ -86,7 +86,7 @@ if st.button("Analyze Portfolio"):
     drawdown = (cumulative / cumulative.cummax() - 1).min()
 
     # ==============================
-    # DISPLAY
+    # DISPLAY METRICS
     # ==============================
     st.subheader("📊 Portfolio Metrics")
 
@@ -128,29 +128,34 @@ if st.button("Analyze Portfolio"):
     st.line_chart(cumulative)
 
     # ==============================
-    # 💾 SAVE TO DATABASE
+    # SAVE TO DATABASE
     # ==============================
-  if st.button("💾 Save Portfolio"):
-    try:
-        response = supabase.table("portfolios").insert({
-            "username": st.session_state.user,
-            "stocks": stocks_input
-        }).execute()
+    if st.button("💾 Save Portfolio"):
+        try:
+            response = supabase.table("portfolios").insert({
+                "username": st.session_state.user,
+                "stocks": stocks_input
+            }).execute()
 
-        st.success("✅ Saved to Supabase!")
-        st.write("DEBUG RESPONSE:", response)
+            st.success("✅ Saved to Supabase!")
+            st.write("DEBUG RESPONSE:", response)
 
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
+
 # ==============================
-# 📁 LOAD SAVED PORTFOLIOS
+# LOAD SAVED PORTFOLIOS
 # ==============================
 st.subheader("📁 Your Saved Portfolios")
 
-response = supabase.table("portfolios")\
-    .select("*")\
-    .eq("username", st.session_state.user)\
-    .execute()
+try:
+    response = supabase.table("portfolios") \
+        .select("*") \
+        .eq("username", st.session_state.user) \
+        .execute()
 
-for row in response.data:
-    st.write(f"• {row['stocks']}")
+    for row in response.data:
+        st.write(f"• {row['stocks']}")
+
+except Exception as e:
+    st.error(f"Error loading portfolios: {e}")
