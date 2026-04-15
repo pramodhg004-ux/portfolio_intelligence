@@ -207,8 +207,8 @@ elif page=="Dashboard":
             st.info("No trades")
         else:
             st.dataframe(df)
-    except:
-        st.error("Error")
+   except Exception as e:
+    st.error(e)
 
 # ================= UPGRADE =================
 elif page=="Upgrade":
