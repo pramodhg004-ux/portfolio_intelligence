@@ -6,6 +6,18 @@ from streamlit_autorefresh import st_autorefresh
 import io
 import requests
 
+def is_premium(user):
+    try:
+        res = supabase.table("subscriptions") \
+            .select("*") \
+            .eq("username", user) \
+            .eq("active", True) \
+            .execute()
+
+        return len(res.data) > 0
+    except:
+        return False
+
 # ================= CONFIG =================
 st.set_page_config(page_title="Portfolio Intelligence Pro", layout="wide")
 
@@ -30,9 +42,9 @@ section[data-testid="stSidebar"] {
 cols[i].markdown(f"""
 <div class="card">
 <h3>{row['Stock']}</h3>
-<h1>Rs {row['Price']:.2f}</h1>
+<h1>Rs {float(row['Price']):.2f}</h1>
 <p style="color:{color};font-size:18px;">
-{row['Change %']:.2f}%
+{float(row['Change %']):.2f}%
 </p>
 </div>
 """, unsafe_allow_html=True)
@@ -146,54 +158,110 @@ if not st.session_state.user:
 user = st.session_state.user
 
 # ================= NAV =================
-page = st.sidebar.radio("Navigate", ["Dashboard", "Terminal", "Analyze", "Portfolios"])
+page = st.sidebar.radio("Navigate", ["Dashboard", "Terminal", "Analyze", "Portfolios", "Upgrade"])
 
 # ================= TERMINAL =================
+# ================= TERMINAL (ZERODHA STYLE) =================
+# ================= TERMINAL (PRO TRADING) =================
+# ================= TERMINAL (TRADING + SAVE) =================
+import plotly.graph_objects as go
+
 if page == "Terminal":
 
-    st.title("💻 Live Trading Terminal")
+    st.title("💻 Trading Terminal Pro")
 
-    watchlist = st.text_input("Watchlist", "AAPL,MSFT,TSLA")
-    stocks = [s.strip().upper() for s in watchlist.split(",")]
+    watchlist_input = st.text_area("Watchlist", "AAPL,MSFT,TSLA")
+    stocks = [s.strip().upper() for s in watchlist_input.split(",")]
 
     api_key = st.secrets["FINNHUB_API_KEY"]
 
-    with st.spinner("Fetching live data..."):
-        data_rows = []
+    col_left, col_right = st.columns([1, 3])
 
-        for stock in stocks:
-            price, change = get_live_price(stock, api_key)
+    with col_left:
+        selected_stock = st.radio("Select Stock", stocks, label_visibility="collapsed")
 
-            if price is not None:
-                data_rows.append({
-                    "Stock": stock,
-                    "Price": price,
-                    "Change %": change
-                })
+    with col_right:
 
-    if not data_rows:
-        st.warning("No data fetched")
-    else:
-        df = pd.DataFrame(data_rows)
+        st.subheader(f"{selected_stock}")
 
-        cols = st.columns(len(df))
+        try:
+            url = f"https://finnhub.io/api/v1/quote?symbol={selected_stock}&token={api_key}"
+            r = requests.get(url).json()
 
-        for i, row in df.iterrows():
-            color = "green" if row["Change %"] > 0 else "red"
+            price = r.get("c", 0)
+            prev = r.get("pc", 1)
+            change = ((price - prev) / prev) * 100
 
-           cols[i].markdown(f"""
-<div class="card">
-<h3>{row['Stock']}</h3>
-<h1>Rs {row['Price']:.2f}</h1>
-<p style="color:{color};font-size:18px;">
-{row['Change %']:.2f}%
-</p>
-</div>
-""", unsafe_allow_html=True)
+        except:
+            price = 0
+            change = 0
+
+        color = "green" if change > 0 else "red"
+
+        st.markdown(f"""
+        <div style="background:#111827;padding:20px;border-radius:10px;text-align:center;">
+            <h1>Rs {price:.2f}</h1>
+            <h3 style="color:{color};">{change:.2f}%</h3>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.divider()
-        st.dataframe(df, use_container_width=True)
 
+        # ===== CHART =====
+        try:
+            data = yf.download(selected_stock, period="1mo", progress=False)
+
+            fig = go.Figure(data=[go.Candlestick(
+                x=data.index,
+                open=data['Open'],
+                high=data['High'],
+                low=data['Low'],
+                close=data['Close']
+            )])
+
+            fig.update_layout(template="plotly_dark", height=400)
+            st.plotly_chart(fig, use_container_width=True)
+
+        except:
+            st.warning("Chart not available")
+
+        st.divider()
+
+        # ===== TRADE =====
+      if is_premium(user):
+    st.subheader("💰 Trade")
+
+        qty = st.number_input("Quantity", min_value=1, value=1)
+
+        col1, col2 = st.columns(2)
+
+        if col1.button("Buy"):
+            try:
+                supabase.table("trades").insert({
+                    "username": user,
+                    "stock": selected_stock,
+                    "qty": qty,
+                    "price": price,
+                    "side": "BUY"
+                }).execute()
+
+                st.success("Buy order executed")
+            except:
+                st.error("Trade failed")
+
+        if col2.button("Sell"):
+            try:
+                supabase.table("trades").insert({
+                    "username": user,
+                    "stock": selected_stock,
+                    "qty": qty,
+                    "price": price,
+                    "side": "SELL"
+                }).execute()
+
+                st.warning("Sell order executed")
+            except:
+                st.error("Trade failed")
 # ================= ANALYZE =================
 elif page == "Analyze":
 
@@ -252,6 +320,10 @@ elif page == "Analyze":
         df["P&L"] = df["Value"] - df["Invested"]
 
         st.session_state.result_df = df
+        
+        if not is_premium(user):
+    st.warning("Upgrade to Pro for full analytics 🚀")
+    st.stop()
 
         # ===== SAVE HISTORY =====
         try:
@@ -333,45 +405,87 @@ elif page == "Portfolios":
     except:
         st.warning("No portfolios found")
 # ================= DASHBOARD =================
+# ================= DASHBOARD (REAL DATA) =================
 if page == "Dashboard":
 
     st.title("📊 Portfolio Dashboard")
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("Portfolio Value", "₹1,25,000", "+2.5%")
-    col2.metric("Today's P&L", "₹2,300", "+1.2%")
-    col3.metric("Total Invested", "₹1,00,000")
-    col4.metric("Active Stocks", "8")
-
-    st.divider()
-
-    st.subheader("📈 Market Overview")
-
-    sample_data = pd.DataFrame({
-        "Index": ["NIFTY 50", "SENSEX", "NASDAQ"],
-        "Value": [22400, 73000, 18000],
-        "Change %": [0.5, -0.2, 1.1]
-    })
-
-    st.dataframe(sample_data, use_container_width=True)
-
-    st.divider()
-
-    st.subheader("📊 Portfolio Growth")
-
     try:
-        hist = supabase.table("portfolio_history") \
+        res = supabase.table("trades") \
             .select("*") \
             .eq("username", user) \
             .execute()
 
-        hist_df = pd.DataFrame(hist.data)
+        trades = pd.DataFrame(res.data)
 
-        if not hist_df.empty:
-            hist_df["date"] = pd.to_datetime(hist_df["date"])
-            hist_df = hist_df.sort_values("date")
+        if trades.empty:
+            st.info("No trades yet")
+            st.stop()
 
-            st.line_chart(hist_df.set_index("date")["value"])
+        trades["signed_qty"] = trades.apply(
+            lambda x: x["qty"] if x["side"] == "BUY" else -x["qty"], axis=1
+        )
+
+        holdings = trades.groupby("stock")["signed_qty"].sum().reset_index()
+
+        holdings = holdings[holdings["signed_qty"] > 0]
+
+        total_value = 0
+
+        rows = []
+
+        for _, row in holdings.iterrows():
+            stock = row["stock"]
+            qty = row["signed_qty"]
+
+            url = f"https://finnhub.io/api/v1/quote?symbol={stock}&token={st.secrets['FINNHUB_API_KEY']}"
+            r = requests.get(url).json()
+
+            price = r.get("c", 0)
+
+            value = qty * price
+            total_value += value
+
+            rows.append({
+                "Stock": stock,
+                "Qty": qty,
+                "Price": price,
+                "Value": value
+            })
+
+        df = pd.DataFrame(rows)
+
+        st.metric("Portfolio Value", f"Rs {total_value:,.0f}")
+
+        st.dataframe(df, use_container_width=True)
+
     except:
-        st.warning("No history data yet")
+        st.error("Error loading portfolio")
+        # ================= UPGRADE =================
+if page == "Upgrade":
+
+    st.title("💎 Upgrade to Pro")
+
+    st.markdown("""
+    ### 🚀 Pro Features:
+    - Real-time data ⚡
+    - Unlimited portfolios 📊
+    - Advanced analytics 📈
+    - Trading simulation 💰
+    """)
+
+    if is_premium(user):
+        st.success("You are a Premium User ✅")
+    else:
+        if st.button("Activate Premium (Demo)"):
+            try:
+                supabase.table("subscriptions").insert({
+                    "username": user,
+                    "plan": "pro",
+                    "active": True
+                }).execute()
+
+                st.success("Premium Activated 🚀")
+                st.rerun()
+            except:
+                st.error("Failed")
