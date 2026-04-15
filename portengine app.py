@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import numpy as np
 from supabase import create_client
 from streamlit_autorefresh import st_autorefresh
 import io
 import requests
 
 # ================= CONFIG =================
-st.set_page_config(page_title="Portfolio Terminal Pro", layout="wide")
+st.set_page_config(page_title="Portfolio Intelligence Pro", layout="wide")
 
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
@@ -29,6 +28,9 @@ body {background-color:#0b0f1a;color:#e6e6e6;}
 # ================= SESSION =================
 if "user" not in st.session_state:
     st.session_state.user = None
+
+if "analysis_done" not in st.session_state:
+    st.session_state.analysis_done = False
 
 # ================= AUTH =================
 st.sidebar.title("🔐 Account")
@@ -60,7 +62,7 @@ if mode == "Login":
             st.rerun()
 
 if not st.session_state.user:
-    st.title("🚀 Portfolio Terminal Pro")
+    st.title("🚀 Portfolio Intelligence Pro")
     st.stop()
 
 user = st.session_state.user
@@ -73,10 +75,7 @@ if page == "Terminal":
 
     st.title("💻 Live Trading Terminal")
 
-    watchlist = st.text_input(
-        "Watchlist",
-        "AAPL,MSFT,TSLA"
-    )
+    watchlist = st.text_input("Watchlist", "AAPL,MSFT,TSLA")
 
     stocks = [s.strip().upper() for s in watchlist.split(",")]
     api_key = st.secrets["FINNHUB_API_KEY"]
@@ -91,7 +90,6 @@ if page == "Terminal":
             if r and "c" in r and r["c"] != 0:
                 price = r["c"]
                 prev_close = r["pc"]
-
                 change = ((price - prev_close) / prev_close) * 100
 
                 data_rows.append({
@@ -99,7 +97,6 @@ if page == "Terminal":
                     "Price": price,
                     "Change %": change
                 })
-
         except:
             continue
 
@@ -124,18 +121,15 @@ if page == "Terminal":
         st.divider()
         st.dataframe(df, use_container_width=True)
 
+# ================= ANALYZE =================
 elif page == "Analyze":
 
     st.title("📈 Portfolio Intelligence")
 
-    st.markdown("### Enter Stocks with Allocation %")
-    st.markdown("Example: AAPL:40, MSFT:30, TSLA:30")
+    st.markdown("### Enter Stocks with Quantity")
+    st.markdown("Example: AAPL:10, MSFT:5, TSLA:2")
 
-    stocks_input = st.text_input("Stocks + Allocation", "AAPL:40,MSFT:30,TSLA:30")
-    investment = st.number_input("Total Investment ₹", value=100000)
-
-    if "analysis_done" not in st.session_state:
-        st.session_state.analysis_done = False
+    stocks_input = st.text_input("Stocks + Quantity", "AAPL:10,MSFT:5,TSLA:2")
 
     if st.button("Analyze"):
         st.session_state.analysis_done = True
@@ -143,16 +137,16 @@ elif page == "Analyze":
         items = [s.strip() for s in stocks_input.split(",")]
 
         stocks = []
-        allocation = {}
+        quantity = {}
 
         for item in items:
             try:
-                stock, pct = item.split(":")
+                stock, qty = item.split(":")
                 stock = stock.upper()
-                pct = float(pct)
+                qty = float(qty)
 
                 stocks.append(stock)
-                allocation[stock] = pct
+                quantity[stock] = qty
             except:
                 continue
 
@@ -182,21 +176,30 @@ elif page == "Analyze":
 
         df = pd.DataFrame({"Stock": valid})
 
-        df["Allocation %"] = df["Stock"].map(allocation)
-
-        df["Invested"] = (df["Allocation %"] / 100) * investment
-
+        df["Qty"] = df["Stock"].map(quantity)
         df["Buy"] = df["Stock"].map(buy)
         df["LTP"] = df["Stock"].map(latest)
 
-        df["Qty"] = df["Invested"] / df["Buy"]
+        df["Invested"] = df["Qty"] * df["Buy"]
         df["Value"] = df["Qty"] * df["LTP"]
         df["P&L"] = df["Value"] - df["Invested"]
         df["Return %"] = (df["P&L"] / df["Invested"]) * 100
 
         st.session_state.result_df = df
 
-    # ===== SHOW RESULT (PERSISTENT) =====
+        # ===== SAVE HISTORY =====
+        try:
+            total_value = df["Value"].sum()
+
+            supabase.table("portfolio_history").insert({
+                "username": user,
+                "portfolio_name": "default",
+                "date": pd.Timestamp.today().date().isoformat(),
+                "value": float(total_value)
+            }).execute()
+        except:
+            pass
+
     if st.session_state.analysis_done:
 
         df = st.session_state.result_df
@@ -212,6 +215,26 @@ elif page == "Analyze":
 
         st.dataframe(df, use_container_width=True)
 
+        # ===== HISTORY CHART =====
+        st.subheader("📊 Portfolio Growth")
+
+        try:
+            hist = supabase.table("portfolio_history") \
+                .select("*") \
+                .eq("username", user) \
+                .execute()
+
+            hist_df = pd.DataFrame(hist.data)
+
+            if not hist_df.empty:
+                hist_df["date"] = pd.to_datetime(hist_df["date"])
+                hist_df = hist_df.sort_values("date")
+
+                st.line_chart(hist_df.set_index("date")["value"])
+        except:
+            st.warning("No history data")
+
+        # ===== DOWNLOAD =====
         buffer = io.BytesIO()
         df.to_excel(buffer, index=False)
 
