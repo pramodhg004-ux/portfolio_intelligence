@@ -164,104 +164,56 @@ page = st.sidebar.radio("Navigate", ["Dashboard", "Terminal", "Analyze", "Portfo
 # ================= TERMINAL (ZERODHA STYLE) =================
 # ================= TERMINAL (PRO TRADING) =================
 # ================= TERMINAL (TRADING + SAVE) =================
-import plotly.graph_objects as go
-
+# ================= TERMINAL (STABLE VERSION) =================
 if page == "Terminal":
 
-    st.title("💻 Trading Terminal Pro")
+    st.title("💻 Trading Terminal")
 
-    watchlist_input = st.text_area("Watchlist", "AAPL,MSFT,TSLA")
-    stocks = [s.strip().upper() for s in watchlist_input.split(",")]
+    watchlist = st.text_input("Watchlist", "AAPL,MSFT,TSLA")
+    stocks = [s.strip().upper() for s in watchlist.split(",")]
 
     api_key = st.secrets["FINNHUB_API_KEY"]
 
-    col_left, col_right = st.columns([1, 3])
+    data_rows = []
 
-    with col_left:
-        selected_stock = st.radio("Select Stock", stocks, label_visibility="collapsed")
-
-    with col_right:
-
-        st.subheader(f"{selected_stock}")
-
+    for stock in stocks:
         try:
-            url = f"https://finnhub.io/api/v1/quote?symbol={selected_stock}&token={api_key}"
+            url = f"https://finnhub.io/api/v1/quote?symbol={stock}&token={api_key}"
             r = requests.get(url).json()
 
-            price = r.get("c", 0)
-            prev = r.get("pc", 1)
-            change = ((price - prev) / prev) * 100
+            if r and "c" in r and r["c"] != 0:
+                price = r["c"]
+                prev = r["pc"]
+                change = ((price - prev) / prev) * 100
 
+                data_rows.append({
+                    "Stock": stock,
+                    "Price": round(price, 2),
+                    "Change %": round(change, 2)
+                })
         except:
-            price = 0
-            change = 0
+            continue
 
-        color = "green" if change > 0 else "red"
+    if not data_rows:
+        st.warning("No data available")
+    else:
+        df = pd.DataFrame(data_rows)
 
-        st.markdown(f"""
-        <div style="background:#111827;padding:20px;border-radius:10px;text-align:center;">
-            <h1>Rs {price:.2f}</h1>
-            <h3 style="color:{color};">{change:.2f}%</h3>
-        </div>
-        """, unsafe_allow_html=True)
+        st.subheader("📊 Live Market")
+
+        # ✅ SAFE DISPLAY (NO HTML → NO ERRORS)
+        cols = st.columns(len(df))
+
+        for i, row in df.iterrows():
+            cols[i].metric(
+                label=row["Stock"],
+                value=f"Rs {row['Price']}",
+                delta=f"{row['Change %']}%"
+            )
 
         st.divider()
 
-        # ===== CHART =====
-        try:
-            data = yf.download(selected_stock, period="1mo", progress=False)
-
-            fig = go.Figure(data=[go.Candlestick(
-                x=data.index,
-                open=data['Open'],
-                high=data['High'],
-                low=data['Low'],
-                close=data['Close']
-            )])
-
-            fig.update_layout(template="plotly_dark", height=400)
-            st.plotly_chart(fig, use_container_width=True)
-
-        except:
-            st.warning("Chart not available")
-
-        st.divider()
-
-        # ===== TRADE =====
-      if is_premium(user):
-    st.subheader("💰 Trade")
-
-        qty = st.number_input("Quantity", min_value=1, value=1)
-
-        col1, col2 = st.columns(2)
-
-        if col1.button("Buy"):
-            try:
-                supabase.table("trades").insert({
-                    "username": user,
-                    "stock": selected_stock,
-                    "qty": qty,
-                    "price": price,
-                    "side": "BUY"
-                }).execute()
-
-                st.success("Buy order executed")
-            except:
-                st.error("Trade failed")
-
-        if col2.button("Sell"):
-            try:
-                supabase.table("trades").insert({
-                    "username": user,
-                    "stock": selected_stock,
-                    "qty": qty,
-                    "price": price,
-                    "side": "SELL"
-                }).execute()
-
-                st.warning("Sell order executed")
-            except:
-                st.error("Trade failed")
+        st.dataframe(df, use_container_width=True)
 # ================= ANALYZE =================
 elif page == "Analyze":
 
