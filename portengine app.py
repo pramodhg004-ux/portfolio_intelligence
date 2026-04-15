@@ -42,9 +42,9 @@ section[data-testid="stSidebar"] {
 cols[i].markdown(f"""
 <div class="card">
 <h3>{row['Stock']}</h3>
-<h1>Rs {float(row['Price']):.2f}</h1>
+<h1>Rs {row['Price']}</h1>
 <p style="color:{color};font-size:18px;">
-{float(row['Change %']):.2f}%
+{row['Change %']}%
 </p>
 </div>
 """, unsafe_allow_html=True)
