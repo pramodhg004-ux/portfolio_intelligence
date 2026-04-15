@@ -30,7 +30,7 @@ section[data-testid="stSidebar"] {
 cols[i].markdown(f"""
 <div class="card">
 <h3>{row['Stock']}</h3>
-<h1>₹{row['Price']:.2f}</h1>
+<h1>Rs {row['Price']:.2f}</h1>
 <p style="color:{color};font-size:18px;">
 {row['Change %']:.2f}%
 </p>
@@ -181,13 +181,15 @@ if page == "Terminal":
         for i, row in df.iterrows():
             color = "green" if row["Change %"] > 0 else "red"
 
-            cols[i].markdown(f"""
-            <div class="card">
-            <h4>{row['Stock']}</h4>
-            <h2>{row['Price']:.2f}</h2>
-            <p style="color:{color}">{row['Change %']:.2f}%</p>
-            </div>
-            """, unsafe_allow_html=True)
+           cols[i].markdown(f"""
+<div class="card">
+<h3>{row['Stock']}</h3>
+<h1>Rs {row['Price']:.2f}</h1>
+<p style="color:{color};font-size:18px;">
+{row['Change %']:.2f}%
+</p>
+</div>
+""", unsafe_allow_html=True)
 
         st.divider()
         st.dataframe(df, use_container_width=True)
