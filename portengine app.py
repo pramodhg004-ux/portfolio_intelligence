@@ -195,21 +195,17 @@ elif page=="Portfolios":
             st.error("Failed")
 
 # ================= DASHBOARD =================
-elif page=="Dashboard":
+try:
+    res = supabase.table("trades").select("*").eq("username", user).execute()
+    df = pd.DataFrame(res.data)
 
-    st.title("📊 Dashboard")
+    if df.empty:
+        st.info("No trades")
+    else:
+        st.dataframe(df)
 
-    try:
-        res=supabase.table("trades").select("*").eq("username",user).execute()
-        df=pd.DataFrame(res.data)
-
-        if df.empty:
-            st.info("No trades")
-        else:
-            st.dataframe(df)
-   except Exception as e:
+except Exception as e:
     st.error(e)
-
 # ================= UPGRADE =================
 elif page=="Upgrade":
 
