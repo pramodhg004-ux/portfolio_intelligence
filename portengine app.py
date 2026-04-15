@@ -41,11 +41,11 @@ section[data-testid="stSidebar"] {
 
 cols[i].markdown(f"""
 <div class="card">
-<h3>{row['Stock']}</h3>
-<h1>Rs {row['Price']}</h1>
-<p style="color:{color};font-size:18px;">
-{row['Change %']}%
-</p>
+    <h3>{row['Stock']}</h3>
+    <h1>Rs {row['Price']}</h1>
+    <p style="color:{color}; font-size:18px;">
+        {row['Change %']}%
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
