@@ -14,8 +14,8 @@ supabase = create_client(
     st.secrets["SUPABASE_KEY"]
 )
 
-# ================= AUTO REFRESH =================
-st_autorefresh(interval=3000, key="live_refresh")
+# ================= PERFORMANCE SETTINGS =================
+st_autorefresh(interval=10000, key="live_refresh")  # slower refresh
 
 # ================= STYLE =================
 st.markdown("""
@@ -24,6 +24,29 @@ body {background-color:#0b0f1a;color:#e6e6e6;}
 .card {background:#111827;padding:15px;border-radius:10px;}
 </style>
 """, unsafe_allow_html=True)
+
+# ================= CACHE =================
+@st.cache_data(ttl=5)
+def get_live_price(stock, api_key):
+    try:
+        url = f"https://finnhub.io/api/v1/quote?symbol={stock}&token={api_key}"
+        r = requests.get(url).json()
+
+        if r and "c" in r and r["c"] != 0:
+            price = r["c"]
+            prev = r["pc"]
+            change = ((price - prev) / prev) * 100
+            return price, change
+    except:
+        return None, None
+
+@st.cache_data(ttl=60)
+def get_stock_data(stock):
+    try:
+        data = yf.download(stock, period="6mo", progress=False)
+        return data["Close"]
+    except:
+        return None
 
 # ================= SESSION =================
 if "user" not in st.session_state:
@@ -76,29 +99,22 @@ if page == "Terminal":
     st.title("💻 Live Trading Terminal")
 
     watchlist = st.text_input("Watchlist", "AAPL,MSFT,TSLA")
-
     stocks = [s.strip().upper() for s in watchlist.split(",")]
+
     api_key = st.secrets["FINNHUB_API_KEY"]
 
-    data_rows = []
+    with st.spinner("Fetching live data..."):
+        data_rows = []
 
-    for stock in stocks:
-        try:
-            url = f"https://finnhub.io/api/v1/quote?symbol={stock}&token={api_key}"
-            r = requests.get(url).json()
+        for stock in stocks:
+            price, change = get_live_price(stock, api_key)
 
-            if r and "c" in r and r["c"] != 0:
-                price = r["c"]
-                prev_close = r["pc"]
-                change = ((price - prev_close) / prev_close) * 100
-
+            if price is not None:
                 data_rows.append({
                     "Stock": stock,
                     "Price": price,
                     "Change %": change
                 })
-        except:
-            continue
 
     if not data_rows:
         st.warning("No data fetched")
@@ -126,9 +142,6 @@ elif page == "Analyze":
 
     st.title("📈 Portfolio Intelligence")
 
-    st.markdown("### Enter Stocks with Quantity")
-    st.markdown("Example: AAPL:10, MSFT:5, TSLA:2")
-
     stocks_input = st.text_input("Stocks + Quantity", "AAPL:10,MSFT:5,TSLA:2")
 
     if st.button("Analyze"):
@@ -154,14 +167,11 @@ elif page == "Analyze":
         valid = []
 
         for stock in stocks:
-            try:
-                temp = yf.download(stock, period="6mo", progress=False)
+            data = get_stock_data(stock)
 
-                if not temp.empty:
-                    price_data[stock] = temp["Close"]
-                    valid.append(stock)
-            except:
-                continue
+            if data is not None:
+                price_data[stock] = data
+                valid.append(stock)
 
         if not price_data:
             st.error("No valid stocks")
@@ -183,7 +193,6 @@ elif page == "Analyze":
         df["Invested"] = df["Qty"] * df["Buy"]
         df["Value"] = df["Qty"] * df["LTP"]
         df["P&L"] = df["Value"] - df["Invested"]
-        df["Return %"] = (df["P&L"] / df["Invested"]) * 100
 
         st.session_state.result_df = df
 
@@ -215,7 +224,7 @@ elif page == "Analyze":
 
         st.dataframe(df, use_container_width=True)
 
-        # ===== HISTORY CHART =====
+        # ===== HISTORY =====
         st.subheader("📊 Portfolio Growth")
 
         try:
@@ -238,11 +247,7 @@ elif page == "Analyze":
         buffer = io.BytesIO()
         df.to_excel(buffer, index=False)
 
-        st.download_button(
-            "📥 Download Portfolio",
-            buffer,
-            "portfolio.xlsx"
-        )
+        st.download_button("📥 Download", buffer, "portfolio.xlsx")
 
 # ================= PORTFOLIOS =================
 elif page == "Portfolios":
@@ -252,7 +257,7 @@ elif page == "Portfolios":
     name = st.text_input("Portfolio Name")
     stocks = st.text_area("Stocks")
 
-    if st.button("Save Portfolio"):
+    if st.button("Save"):
         try:
             supabase.table("portfolios").insert({
                 "username": user,
