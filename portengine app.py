@@ -13,7 +13,62 @@ supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
+# ================= PREMIUM UI STYLE =================
+st.markdown("""
+<style>
 
+/* Background */
+.main {
+    background-color: #0b0f1a;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background-color: #0f172a;
+}
+
+cols[i].markdown(f"""
+<div class="card">
+<h3>{row['Stock']}</h3>
+<h1>₹{row['Price']:.2f}</h1>
+<p style="color:{color};font-size:18px;">
+{row['Change %']:.2f}%
+</p>
+</div>
+""", unsafe_allow_html=True)
+
+/* Headers */
+h1, h2, h3 {
+    color: #e5e7eb;
+}
+
+/* Metrics */
+.metric {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+/* Buttons */
+.stButton>button {
+    background-color: #2563eb;
+    color: white;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+/* Input boxes */
+.stTextInput>div>div>input {
+    background-color: #111827;
+    color: white;
+}
+
+/* Dataframe */
+.css-1d391kg {
+    background-color: #111827;
+}
+
+</style>
+""", unsafe_allow_html=True)
 # ================= PERFORMANCE SETTINGS =================
 st_autorefresh(interval=10000, key="live_refresh")  # slower refresh
 
@@ -91,7 +146,7 @@ if not st.session_state.user:
 user = st.session_state.user
 
 # ================= NAV =================
-page = st.sidebar.radio("Navigate", ["Terminal", "Analyze", "Portfolios"])
+page = st.sidebar.radio("Navigate", ["Dashboard", "Terminal", "Analyze", "Portfolios"])
 
 # ================= TERMINAL =================
 if page == "Terminal":
@@ -275,3 +330,46 @@ elif page == "Portfolios":
             st.markdown(f"**{r['portfolio_name']}** → {r['stocks']}")
     except:
         st.warning("No portfolios found")
+# ================= DASHBOARD =================
+if page == "Dashboard":
+
+    st.title("📊 Portfolio Dashboard")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Portfolio Value", "₹1,25,000", "+2.5%")
+    col2.metric("Today's P&L", "₹2,300", "+1.2%")
+    col3.metric("Total Invested", "₹1,00,000")
+    col4.metric("Active Stocks", "8")
+
+    st.divider()
+
+    st.subheader("📈 Market Overview")
+
+    sample_data = pd.DataFrame({
+        "Index": ["NIFTY 50", "SENSEX", "NASDAQ"],
+        "Value": [22400, 73000, 18000],
+        "Change %": [0.5, -0.2, 1.1]
+    })
+
+    st.dataframe(sample_data, use_container_width=True)
+
+    st.divider()
+
+    st.subheader("📊 Portfolio Growth")
+
+    try:
+        hist = supabase.table("portfolio_history") \
+            .select("*") \
+            .eq("username", user) \
+            .execute()
+
+        hist_df = pd.DataFrame(hist.data)
+
+        if not hist_df.empty:
+            hist_df["date"] = pd.to_datetime(hist_df["date"])
+            hist_df = hist_df.sort_values("date")
+
+            st.line_chart(hist_df.set_index("date")["value"])
+    except:
+        st.warning("No history data yet")
